@@ -151,7 +151,8 @@ class BigQueryMCPServer:
         ]
 
         for tool in tools:
-            self.server.tools.register(tool, self._get_tool_handler(tool.name))
+            handler = self._get_tool_handler(tool.name)
+            self.server.tool(tool)(handler)
 
     def _create_fastapi_app(self) -> FastAPI:
         """Create a FastAPI app for HTTP transport."""
