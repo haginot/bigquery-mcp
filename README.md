@@ -98,8 +98,11 @@ You can also use docker-compose:
 mkdir -p credentials
 cp /path/to/your/service-account-key.json credentials/service-account-key.json
 
-# Start the server with docker-compose
+# Start the HTTP server with docker-compose
 docker-compose up
+
+# Start the stdio server with docker-compose (for Claude Desktop)
+docker-compose up mcp-bigquery-server-stdio
 ```
 
 ### Using with Claude Desktop
@@ -114,9 +117,8 @@ To use this MCP server with Claude Desktop:
      -e GOOGLE_APPLICATION_CREDENTIALS=/credentials/service-account-key.json \
      mcp-bigquery-server --stdio
    
-   # Or using docker-compose (after uncommenting the stdio settings)
-   # Edit docker-compose.yml to enable stdin_open, tty and change command to --stdio
-   docker-compose up
+   # Or using docker-compose (recommended)
+   docker-compose up mcp-bigquery-server-stdio
    ```
 
 2. In Claude Desktop:
