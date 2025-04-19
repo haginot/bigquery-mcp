@@ -48,7 +48,7 @@ class BigQueryMCPServer:
 
         self.mcp = FastMCP(
             name="mcp-bigquery-server",
-            instructions="BigQuery MCP server that provides access to Google BigQuery operations."
+            version="0.1.0"
         )
 
         self._register_tools()
