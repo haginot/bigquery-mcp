@@ -36,8 +36,7 @@ except Exception as e:
 
 async def test_bigquery_operations():
     """Test BigQuery operations using the MCP client."""
-    from mcp.client.session import ClientSession
-    from mcp.stdio_client import StdioTransport
+    from mcp import ClientSession
     from mcp_bigquery_server.server import BigQueryMCPServer
     
     logger.info("Starting MCP BigQuery server...")
@@ -50,8 +49,7 @@ async def test_bigquery_operations():
     
     await asyncio.sleep(1)
     
-    transport = StdioTransport()
-    client = ClientSession(transport=transport)
+    client = ClientSession()
     
     try:
         logger.info("Initializing connection...")
