@@ -532,27 +532,33 @@ class BigQueryMCPServer:
 
     def start_stdio(self):
         """Start the server with stdio transport."""
-        import threading
+        import sys
         import time
+        
+        original_handle_jsonrpc = self.server.handle_jsonrpc
+        
+        async def logged_handle_jsonrpc(request):
+            logger.info(f"Received JSON-RPC request: {json.dumps(request)}")
+            try:
+                response = await original_handle_jsonrpc(request)
+                logger.info(f"Sending JSON-RPC response: {json.dumps(response)}")
+                return response
+            except Exception as e:
+                logger.error(f"Error handling JSON-RPC request: {e}")
+                raise
+        
+        self.server.handle_jsonrpc = logged_handle_jsonrpc
+        
+        sys.stdout.reconfigure(write_through=True)
         
         logger.info("Starting BigQuery MCP server with stdio transport...")
         
-        def run_stdio_server():
-            stdio_server(self.server)
-            logger.info("Stdio server function returned, but keeping process alive...")
-        
-        # Run the stdio server in a separate thread
-        server_thread = threading.Thread(target=run_stdio_server, daemon=True)
-        server_thread.start()
-        
-        # Keep the main thread alive
-        logger.info("Main thread keeping process alive...")
+        # Run the stdio server directly in the main thread
         try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            logger.info("Received keyboard interrupt, exiting...")
-            return
+            stdio_server(self.server)
+        except Exception as e:
+            logger.error(f"Error in stdio server: {e}")
+            raise
 
     async def start_http(self, host: str = "localhost", port: int = 8000):
         """Start the server with HTTP transport."""
