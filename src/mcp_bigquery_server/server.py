@@ -533,11 +533,19 @@ def main():
         action="store_true",
         help="Expose BigQuery schemas as resources",
     )
-    parser.add_argument(
+    
+    transport_group = parser.add_mutually_exclusive_group()
+    transport_group.add_argument(
         "--http",
         action="store_true",
         help="Enable HTTP transport",
     )
+    transport_group.add_argument(
+        "--stdio",
+        action="store_true",
+        help="Enable stdio transport (default)",
+    )
+    
     parser.add_argument(
         "--host",
         default="localhost",
