@@ -10,6 +10,7 @@ A fully-compliant Model Context Protocol (MCP) server that surfaces Google BigQu
 - Supports pagination for long result sets
 - Implements logging utilities
 - Handles errors according to JSON-RPC standards
+- Docker support for easy deployment
 
 ## Installation
 
@@ -67,6 +68,27 @@ server = BigQueryMCPServer(
     query_timeout_ms=30000,
 )
 server.start()
+```
+
+### Docker
+
+You can run the MCP server in a Docker container:
+
+```bash
+# Build the Docker image
+docker build -t mcp-bigquery-server .
+
+# Run with stdio transport (for use with Claude Desktop)
+docker run -i --rm \
+  -v /path/to/credentials:/credentials \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/credentials/service-account-key.json \
+  mcp-bigquery-server --stdio
+
+# Run with HTTP transport
+docker run -p 8000:8000 --rm \
+  -v /path/to/credentials:/credentials \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/credentials/service-account-key.json \
+  mcp-bigquery-server
 ```
 
 ## Available Tools
