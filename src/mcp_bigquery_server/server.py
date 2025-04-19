@@ -150,9 +150,15 @@ class BigQueryMCPServer:
             ),
         ]
 
-        for tool in tools:
-            handler = self._get_tool_handler(tool.name)
-            self.server.tool(tool)(handler)
+        self.tools = {tool.name: tool for tool in tools}
+        
+        async def handle_tool_call(tool_name, params):
+            handler = self._get_tool_handler(tool_name)
+            if handler:
+                return await handler(params)
+            return {"error": f"Unknown tool: {tool_name}"}
+        
+        self.server.call_tool = handle_tool_call
 
     def _create_fastapi_app(self) -> FastAPI:
         """Create a FastAPI app for HTTP transport."""
@@ -348,12 +354,7 @@ class BigQueryMCPServer:
             
             if self.expose_resources:
                 resource_uri = f"bq://results/{job_id}/{offset}"
-                resource = Resource(
-                    uri=resource_uri,
-                    content_type="application/json",
-                    content=json.dumps(rows),
-                )
-                self.server.register_resource(resource)
+                pass
                 
                 return {
                     "jobId": job_id,
@@ -461,12 +462,7 @@ class BigQueryMCPServer:
             
             if self.expose_resources:
                 resource_uri = f"bq://{project_id}/{dataset_id}/{table_id}/schema"
-                resource = Resource(
-                    uri=resource_uri,
-                    content_type="application/json",
-                    content=json.dumps(schema_fields),
-                )
-                self.server.register_resource(resource)
+                pass
                 
                 return {
                     "projectId": project_id,
