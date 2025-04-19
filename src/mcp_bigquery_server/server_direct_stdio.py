@@ -168,13 +168,37 @@ class BigQueryMCPServer:
         """Handle tools/list request."""
         logger.info(f"Handling tools/list request: {params}")
         
-        tools = []
-        for tool in self.mcp._tools:
-            tools.append({
-                "name": tool.name,
-                "description": tool.description,
-                "inputSchema": tool.input_schema,
-            })
+        tools = [
+            {
+                "name": "execute_query",
+                "description": "Submit a SQL query to BigQuery, optionally as dry-run",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "projectId": {"type": "string"},
+                        "location": {"type": "string"},
+                        "sql": {"type": "string"},
+                        "params": {
+                            "type": "object",
+                            "additionalProperties": True,
+                        },
+                        "dryRun": {"type": "boolean"},
+                    },
+                    "required": ["sql"],
+                },
+            },
+            {
+                "name": "list_datasets",
+                "description": "List all datasets in a project",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "projectId": {"type": "string"},
+                        "location": {"type": "string"},
+                    },
+                },
+            },
+        ]
         
         self.send_response(request_id, {"tools": tools})
 
@@ -186,8 +210,64 @@ class BigQueryMCPServer:
         logger.info(f"Handling call_tool request: {tool_name} with params {tool_params}")
         
         try:
-            result = await self.mcp.call_tool(tool_name, tool_params)
-            self.send_response(request_id, result)
+            if tool_name == "execute_query":
+                sql = tool_params.get("sql")
+                project_id = tool_params.get("projectId")
+                location = tool_params.get("location")
+                query_params = tool_params.get("params")
+                dry_run = tool_params.get("dryRun", False)
+                
+                job_config = bigquery.QueryJobConfig(
+                    dry_run=dry_run,
+                    use_query_cache=True,
+                )
+                
+                query_job = self.bq_client.query(
+                    sql,
+                    job_config=job_config,
+                    project=project_id,
+                    location=location,
+                )
+                
+                query_job.result(timeout=self.query_timeout_ms / 1000)
+                
+                if dry_run:
+                    result = {
+                        "bytesProcessed": query_job.total_bytes_processed,
+                        "isDryRun": True,
+                    }
+                else:
+                    result = {
+                        "jobId": query_job.job_id,
+                        "status": query_job.state,
+                        "bytesProcessed": query_job.total_bytes_processed,
+                    }
+                
+                self.send_response(request_id, result)
+                
+            elif tool_name == "list_datasets":
+                project_id = tool_params.get("projectId")
+                
+                datasets = list(self.bq_client.list_datasets(project=project_id))
+                
+                dataset_list = [
+                    {
+                        "id": ds.dataset_id,
+                        "projectId": ds.project,
+                        "location": ds.location,
+                    }
+                    for ds in datasets
+                ]
+                
+                result = {
+                    "datasets": dataset_list,
+                }
+                
+                self.send_response(request_id, result)
+                
+            else:
+                self.send_error(request_id, -32601, f"Unknown tool: {tool_name}")
+                
         except Exception as e:
             logger.error(f"Error calling tool: {e}")
             self.send_error(request_id, -32603, f"Error calling tool: {str(e)}")
