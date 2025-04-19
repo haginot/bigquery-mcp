@@ -16,7 +16,7 @@ from mcp import Tool, Resource
 from mcp.server.session import ServerSession
 from mcp.types import ServerCapabilities, ToolsCapability, LoggingCapability, ResourcesCapability
 from mcp.server.fastmcp import FastMCP
-from mcp.server.stdio import StdioServer
+from mcp.server.stdio import stdio_server
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -522,8 +522,7 @@ class BigQueryMCPServer:
                 )
             )
         else:
-            self.stdio_server = StdioServer(self.server)
-            self.stdio_server.start()
+            stdio_server(self.server)
 
 
 def main():
