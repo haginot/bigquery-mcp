@@ -14,7 +14,7 @@ from google.cloud import bigquery
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from mcp import Tool, Resource
-from mcp.server.session import ServerSession
+from mcp.server import Server
 from mcp.types import ServerCapabilities, ToolsCapability, LoggingCapability, ResourcesCapability
 from mcp.server.fastmcp import FastMCP
 from mcp.server.stdio import stdio_server
@@ -46,11 +46,12 @@ class BigQueryMCPServer:
         self.query_timeout_ms = query_timeout_ms
         self.bq_client = bigquery.Client()
 
-        self.server = ServerSession(
+        self.server = Server(
             name="mcp-bigquery-server",
             version="1.0.0",
-            capabilities=self._get_capabilities(),
         )
+        
+        self.server.call_tool = self._get_tool_handler()
 
         self._register_tools()
 
@@ -66,7 +67,7 @@ class BigQueryMCPServer:
 
     def _register_tools(self) -> None:
         """Register all BigQuery tools with the MCP server."""
-        tools = [
+        self.server.tools = [
             Tool(
                 name="execute_query",
                 description="Submit a SQL query to BigQuery, optionally as dry-run",
@@ -146,20 +147,23 @@ class BigQueryMCPServer:
             ),
         ]
 
-        for tool in tools:
-            self.server.register_tool(tool.name, self._get_tool_handler(tool.name))
-
-    def _get_tool_handler(self, tool_name: str):
-        """Get the handler function for a tool."""
-        handlers = {
-            "execute_query": self._handle_execute_query,
-            "get_job_status": self._handle_get_job_status,
-            "cancel_job": self._handle_cancel_job,
-            "fetch_results_chunk": self._handle_fetch_results_chunk,
-            "list_datasets": self._handle_list_datasets,
-            "get_table_schema": self._handle_get_table_schema,
-        }
-        return handlers.get(tool_name)
+    def _get_tool_handler(self):
+        """Get the handler function for call_tool."""
+        async def handle_tool_call(tool_name, params):
+            handlers = {
+                "execute_query": self._handle_execute_query,
+                "get_job_status": self._handle_get_job_status,
+                "cancel_job": self._handle_cancel_job,
+                "fetch_results_chunk": self._handle_fetch_results_chunk,
+                "list_datasets": self._handle_list_datasets,
+                "get_table_schema": self._handle_get_table_schema,
+            }
+            handler = handlers.get(tool_name)
+            if handler:
+                return await handler(params)
+            return {"error": f"Unknown tool: {tool_name}"}
+        
+        return handle_tool_call
 
     async def _handle_execute_query(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle execute_query tool."""
@@ -526,22 +530,13 @@ class BigQueryMCPServer:
         ]
         return any(origin.startswith(allowed) for allowed in allowed_origins)
 
-    async def start_stdio(self):
+    def start_stdio(self):
         """Start the server with stdio transport."""
-        import threading
-        import time
-        
         logger.info("Starting BigQuery MCP server with stdio transport...")
         
-        def run_stdio_server():
-            stdio_server(self.server)
-            
-        server_thread = threading.Thread(target=run_stdio_server, daemon=True)
-        server_thread.start()
+        stdio_server(self.server)
         
-        logger.info("Stdio server started, keeping process alive...")
-        while True:
-            await asyncio.sleep(1)
+        logger.info("Stdio server terminated.")
 
     async def start_http(self, host: str = "localhost", port: int = 8000):
         """Start the server with HTTP transport."""
@@ -604,7 +599,7 @@ async def main_async():
     if args.http:
         await server.start_http(host=args.host, port=args.port)
     else:
-        await server.start_stdio()
+        server.start_stdio()
 
 def main():
     """Main entry point for the MCP BigQuery server."""
