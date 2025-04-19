@@ -102,13 +102,37 @@ def handle_request(server: Server, request: Dict[str, Any]) -> Optional[Dict[str
         }
     elif method == "tools/list":
         # Handle tools/list request
-        tools = []
-        for tool in server.tools:
-            tools.append({
-                "name": tool.name,
-                "description": tool.description,
-                "inputSchema": tool.inputSchema,
-            })
+        tools = [
+            {
+                "name": "execute_query",
+                "description": "Submit a SQL query to BigQuery, optionally as dry-run",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "projectId": {"type": "string"},
+                        "location": {"type": "string"},
+                        "sql": {"type": "string"},
+                        "params": {
+                            "type": "object",
+                            "additionalProperties": True,
+                        },
+                        "dryRun": {"type": "boolean"},
+                    },
+                    "required": ["sql"],
+                },
+            },
+            {
+                "name": "list_datasets",
+                "description": "List all datasets in a project",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "projectId": {"type": "string"},
+                        "location": {"type": "string"},
+                    },
+                },
+            },
+        ]
         
         return {
             "jsonrpc": "2.0",
