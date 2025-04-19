@@ -47,10 +47,8 @@ class BigQueryMCPServer:
         self.bq_client = bigquery.Client()
 
         self.server = ServerSession(
-            server_info={
-                "name": "mcp-bigquery-server",
-                "version": "1.0.0",
-            },
+            name="mcp-bigquery-server",
+            version="1.0.0",
             capabilities=self._get_capabilities(),
         )
 
