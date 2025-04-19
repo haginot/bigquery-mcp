@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Union, AsyncGenerator
 
 from google.cloud import bigquery
-from mcp.server.session import ServerSession
+from mcp.server import Server
 from mcp import Tool, Resource
 
 logging.basicConfig(
@@ -39,18 +39,16 @@ class BigQueryMCPServer:
         self.query_timeout_ms = query_timeout_ms
         self.bq_client = bigquery.Client()
         
-        self.server = ServerSession(
-            server_info={
-                "name": "mcp-bigquery-server",
-                "version": "1.0.0",
-            },
-            capabilities=self._get_capabilities(),
+        self.server = Server(
+            name="mcp-bigquery-server",
+            version="1.0.0",
+            lifespan=self._server_lifespan,
         )
         
         self._register_tools()
 
     @asynccontextmanager
-    async def _server_lifespan(self, server: ServerSession):
+    async def _server_lifespan(self, server: Server):
         """Server lifespan context manager."""
         logger.info("Starting BigQuery MCP server...")
         
@@ -59,17 +57,6 @@ class BigQueryMCPServer:
         finally:
             logger.info("Shutting down BigQuery MCP server...")
 
-    def _get_capabilities(self):
-        """Get the capabilities supported by this server."""
-        from mcp.types import ServerCapabilities, ToolsCapability, LoggingCapability, ResourcesCapability
-        
-        capabilities = ServerCapabilities(
-            tools=ToolsCapability(list_changed=True),
-            logging=LoggingCapability(),
-        )
-        if self.expose_resources:
-            capabilities.resources = ResourcesCapability(list_changed=True)
-        return capabilities
 
     def _register_tools(self) -> None:
         """Register all BigQuery tools with the MCP server."""
@@ -154,7 +141,8 @@ class BigQueryMCPServer:
         ]
 
         for tool in tools:
-            self.server.register_tool(tool.name, self._get_tool_handler(tool.name))
+            handler = self._get_tool_handler(tool.name)
+            self.server.tools.register(tool, handler)
 
     def _get_tool_handler(self, tool_name: str):
         """Get the handler function for a tool."""
@@ -308,7 +296,8 @@ class BigQueryMCPServer:
                     content_type="application/json",
                     content=json.dumps(rows),
                 )
-                self.server.register_resource(resource.uri, resource.content_type, resource.content)
+                if self.expose_resources:
+                    self.server.resources.register(resource.uri, resource.content_type, resource.content)
                 
                 return {
                     "jobId": job_id,
@@ -429,7 +418,8 @@ class BigQueryMCPServer:
                     content_type="application/json",
                     content=json.dumps(schema_fields),
                 )
-                self.server.register_resource(resource.uri, resource.content_type, resource.content)
+                if self.expose_resources:
+                    self.server.resources.register(resource.uri, resource.content_type, resource.content)
                 
                 return {
                     "projectId": project_id,
@@ -459,31 +449,11 @@ class BigQueryMCPServer:
 
     async def start_stdio(self):
         """Start the server with stdio transport."""
-        from mcp.server.stdio import stdio_server
-        await stdio_server(self.server)
+        await self.server.stdio()
 
     async def start_http(self, host: str = "localhost", port: int = 8000):
         """Start the server with HTTP transport."""
-        from fastapi import FastAPI
-        from fastapi.middleware.cors import CORSMiddleware
-        from mcp.server.fastmcp import FastMCP
-        import uvicorn
-        
-        app = FastAPI(title="MCP BigQuery Server")
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-        
-        fastmcp = FastMCP(self.server, app=app)
-        await uvicorn.run(
-            app,
-            host=host,
-            port=port,
-        )
+        await self.server.http(host=host, port=port)
 
 async def main_async():
     """Async main entry point for the MCP BigQuery server."""
