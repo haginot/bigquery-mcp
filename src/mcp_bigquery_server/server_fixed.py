@@ -533,32 +533,51 @@ class BigQueryMCPServer:
     def start_stdio(self):
         """Start the server with stdio transport."""
         import sys
+        import threading
         import time
-        
-        original_handle_jsonrpc = self.server.handle_jsonrpc
-        
-        async def logged_handle_jsonrpc(request):
-            logger.info(f"Received JSON-RPC request: {json.dumps(request)}")
-            try:
-                response = await original_handle_jsonrpc(request)
-                logger.info(f"Sending JSON-RPC response: {json.dumps(response)}")
-                return response
-            except Exception as e:
-                logger.error(f"Error handling JSON-RPC request: {e}")
-                raise
-        
-        self.server.handle_jsonrpc = logged_handle_jsonrpc
         
         sys.stdout.reconfigure(write_through=True)
         
+        original_initialize = getattr(self.server, "_handle_initialize", None)
+        
+        if original_initialize:
+            async def logged_initialize(params, request_id):
+                logger.info(f"Received initialize request: {json.dumps(params)}")
+                try:
+                    result = await original_initialize(params, request_id)
+                    logger.info(f"Sending initialize response: {json.dumps(result)}")
+                    return result
+                except Exception as e:
+                    logger.error(f"Error handling initialize request: {e}")
+                    raise
+            
+            self.server._handle_initialize = logged_initialize
+        
         logger.info("Starting BigQuery MCP server with stdio transport...")
         
-        # Run the stdio server directly in the main thread
+        initialize_processed = threading.Event()
+        
+        def run_stdio_server():
+            try:
+                stdio_server(self.server)
+                logger.info("Stdio server function returned")
+            except Exception as e:
+                logger.error(f"Error in stdio server: {e}")
+            finally:
+                initialize_processed.set()
+        
+        # Run the stdio server in a separate thread
+        server_thread = threading.Thread(target=run_stdio_server)
+        server_thread.daemon = True
+        server_thread.start()
+        
+        logger.info("Main thread keeping process alive...")
         try:
-            stdio_server(self.server)
-        except Exception as e:
-            logger.error(f"Error in stdio server: {e}")
-            raise
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("Received keyboard interrupt, exiting...")
+            return
 
     async def start_http(self, host: str = "localhost", port: int = 8000):
         """Start the server with HTTP transport."""
