@@ -1,4 +1,4 @@
-FROM python:3.11-slim          # 3.11 is recommended for BigQuery SDK
+FROM python:3.11-slim
 
 WORKDIR /app
 
