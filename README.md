@@ -91,6 +91,44 @@ docker run -p 8000:8000 --rm \
   mcp-bigquery-server
 ```
 
+You can also use docker-compose:
+
+```bash
+# Create a credentials directory and copy your service account key
+mkdir -p credentials
+cp /path/to/your/service-account-key.json credentials/service-account-key.json
+
+# Start the server with docker-compose
+docker-compose up
+```
+
+### Using with Claude Desktop
+
+To use this MCP server with Claude Desktop:
+
+1. Run the server with stdio transport:
+   ```bash
+   # Using Docker directly
+   docker run -i --rm \
+     -v /path/to/credentials:/credentials \
+     -e GOOGLE_APPLICATION_CREDENTIALS=/credentials/service-account-key.json \
+     mcp-bigquery-server --stdio
+   
+   # Or using docker-compose (after uncommenting the stdio settings)
+   # Edit docker-compose.yml to enable stdin_open, tty and change command to --stdio
+   docker-compose up
+   ```
+
+2. In Claude Desktop:
+   - Go to Settings > Tools
+   - Select "Add Tool" > "Add MCP Tool"
+   - Choose "Connect to running MCP server"
+   - Select "stdio" as the transport
+   - Click "Connect" and select the terminal running your Docker container
+
+Claude will now have access to all BigQuery operations through the MCP server.
+
+
 ## Available Tools
 
 The server exposes the following BigQuery operations as MCP tools:
