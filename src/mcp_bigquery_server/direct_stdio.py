@@ -4,6 +4,7 @@ Direct stdio implementation for MCP server to fix Claude Desktop compatibility.
 import json
 import logging
 import sys
+import asyncio
 from typing import Any, Dict, Optional
 
 from mcp.server import Server
@@ -140,7 +141,6 @@ def handle_request(server: Server, request: Dict[str, Any]) -> Optional[Dict[str
         
         try:
             # Call the tool handler
-            import asyncio
             result = asyncio.run(server.call_tool(tool_name, tool_params))
             
             return {

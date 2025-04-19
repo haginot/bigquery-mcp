@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import bigquery
 from mcp import Tool, Resource
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
+from mcp_bigquery_server.direct_stdio import direct_stdio_server
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
@@ -557,7 +557,7 @@ class BigQueryMCPServer:
             
             logger.info("Starting stdio server...")
             try:
-                stdio_server(self.server)
+                direct_stdio_server(self.server)
                 logger.info("Stdio server started, waiting for input...")
                 signal.pause()
             except Exception as e:
