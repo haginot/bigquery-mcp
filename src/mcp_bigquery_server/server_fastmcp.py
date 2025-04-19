@@ -355,9 +355,9 @@ class BigQueryMCPServer:
     def start(self) -> None:
         """Start the MCP server with all configured transports."""
         if self.http_enabled:
-            self.mcp.start_http(host=self.host, port=self.port)
+            self.mcp.run(transport="sse", host=self.host, port=self.port)
         else:
-            self.mcp.start_stdio()
+            self.mcp.run()  # Default is stdio transport
 
 
 def main():
