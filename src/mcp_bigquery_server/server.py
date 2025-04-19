@@ -172,8 +172,8 @@ class BigQueryMCPServer:
             allow_headers=["*"],
         )
 
-        @app.post("/mcp")
-        async def handle_mcp_post(request: Request) -> Union[Response, EventSourceResponse]:
+        @app.post("/mcp", response_model=None)
+        async def handle_mcp_post(request: Request):
             """Handle MCP POST requests."""
             content_type = request.headers.get("content-type", "")
             accept = request.headers.get("accept", "")
