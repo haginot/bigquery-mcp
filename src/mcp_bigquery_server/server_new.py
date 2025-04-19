@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Union, AsyncGenerator
 from google.cloud import bigquery
 from mcp import Tool, Resource
 from mcp.server.stdio import stdio_server
-from mcp.server.http import http_server
+from mcp.server.lowlevel.server import Server
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,8 +44,6 @@ class BigQueryMCPServer:
         self.version = "1.0.0"
         self.tools = self._register_tools()
         self.resources = []
-
-    # Server lifespan is now handled by stdio_server and http_server
 
 
     def _register_tools(self) -> Dict[str, Dict]:
@@ -444,7 +442,6 @@ class BigQueryMCPServer:
         """Start the server with stdio transport."""
         logger.info("Starting BigQuery MCP server with stdio transport...")
         
-        # Prepare tools for stdio_server
         tools = {}
         for name, tool_info in self.tools.items():
             tools[name] = tool_info["handler"]
@@ -460,19 +457,16 @@ class BigQueryMCPServer:
         """Start the server with HTTP transport."""
         logger.info(f"Starting BigQuery MCP server with HTTP transport on {host}:{port}...")
         
-        # Prepare tools for http_server
-        tools = {}
-        for name, tool_info in self.tools.items():
-            tools[name] = tool_info["handler"]
+        server = Server(name=self.name, version=self.version)
         
-        await http_server(
-            name=self.name,
-            version=self.version,
-            tools=tools,
-            resources={resource.uri: (resource.content_type, resource.content) for resource in self.resources} if self.expose_resources else None,
-            host=host,
-            port=port,
-        )
+        for name, tool_info in self.tools.items():
+            server.add_tool(tool_info["tool"], tool_info["handler"])
+        
+        if self.expose_resources:
+            for resource in self.resources:
+                server.add_resource(resource)
+        
+        await server.http(host=host, port=port)
 
 async def main_async():
     """Async main entry point for the MCP BigQuery server."""
