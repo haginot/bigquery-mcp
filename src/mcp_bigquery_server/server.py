@@ -200,7 +200,48 @@ class BigQueryMCPServer:
                 )
             
             body = await request.json()
-            response = await self.server.handle_jsonrpc(body)
+            if body.get("method") == "call_tool":
+                tool_name = body.get("params", {}).get("tool")
+                tool_params = body.get("params", {}).get("params", {})
+                
+                handler = self._get_tool_handler(tool_name)
+                if handler:
+                    try:
+                        result = await handler(tool_params)
+                        response = {
+                            "jsonrpc": "2.0",
+                            "result": result,
+                            "id": body.get("id")
+                        }
+                    except Exception as e:
+                        logger.error(f"Error handling tool call: {e}")
+                        response = {
+                            "jsonrpc": "2.0",
+                            "error": {
+                                "code": -32000,
+                                "message": str(e)
+                            },
+                            "id": body.get("id")
+                        }
+                else:
+                    response = {
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32601,
+                            "message": f"Tool not found: {tool_name}"
+                        },
+                        "id": body.get("id")
+                    }
+            else:
+                response = {
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32601,
+                        "message": f"Method not found: {body.get('method')}"
+                    },
+                    "id": body.get("id")
+                }
+                
             return Response(
                 content=json.dumps(response),
                 media_type="application/json",
