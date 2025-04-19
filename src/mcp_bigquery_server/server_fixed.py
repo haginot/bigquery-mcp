@@ -532,11 +532,27 @@ class BigQueryMCPServer:
 
     def start_stdio(self):
         """Start the server with stdio transport."""
+        import threading
+        import time
+        
         logger.info("Starting BigQuery MCP server with stdio transport...")
         
-        stdio_server(self.server)
+        def run_stdio_server():
+            stdio_server(self.server)
+            logger.info("Stdio server function returned, but keeping process alive...")
         
-        logger.info("Stdio server terminated.")
+        # Run the stdio server in a separate thread
+        server_thread = threading.Thread(target=run_stdio_server, daemon=True)
+        server_thread.start()
+        
+        # Keep the main thread alive
+        logger.info("Main thread keeping process alive...")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("Received keyboard interrupt, exiting...")
+            return
 
     async def start_http(self, host: str = "localhost", port: int = 8000):
         """Start the server with HTTP transport."""
@@ -599,6 +615,7 @@ async def main_async():
     if args.http:
         await server.start_http(host=args.host, port=args.port)
     else:
+        # start_stdio is synchronous in MCP 1.6.0, so we call it directly
         server.start_stdio()
 
 def main():
