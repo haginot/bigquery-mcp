@@ -1,77 +1,97 @@
 # BigQuery MCP Server Implementation Summary
 
-This document summarizes the implementation of the BigQuery MCP server according to the specification in spec.md.
+This document provides a summary of the BigQuery MCP server implementation, including the key components, features, and design decisions.
 
-## Implementation Details
+## Overview
 
-- **MCP Specification**: Implements MCP specification rev 2025-03-26
-- **Transport**: Supports both stdio (default) and HTTP transports
-- **BigQuery Integration**: Uses Google Cloud BigQuery Python client library
-- **Authentication**: Uses Google Cloud service account authentication
-- **Docker Support**: Containerized for easy deployment
+The BigQuery MCP server is a fully-compliant Model Context Protocol (MCP) server that surfaces Google BigQuery functionality to LLM agents and other MCP clients. It implements the MCP specification rev 2025-03-26 and provides both stdio and HTTP transports.
 
-## Key Features
+## Key Components
 
-1. **BigQuery Operations**:
-   - Execute SQL queries
-   - Get job status
-   - Cancel jobs
-   - Fetch results with pagination
-   - List datasets
-   - Get table schemas
+### 1. Server Implementation
 
-2. **MCP Protocol Compliance**:
-   - Implements initialize, tools/list, and call_tool methods
-   - Supports proper error handling according to JSON-RPC 2.0
-   - Implements logging capabilities
+The server is implemented in Python using the MCP SDK version 1.6.0. The main components are:
 
-3. **Resource Exposure** (Optional):
-   - Exposes BigQuery schemas as resources
-   - Exposes query results as resources
+- `BigQueryMCPServer` class: The core server implementation that handles tool registration, request handling, and transport selection.
+- Direct stdio implementation: A custom implementation that handles the Claude Desktop initialization sequence (initialize → listTools → callTool).
+- HTTP transport: Uses FastAPI to provide an HTTP endpoint for the MCP server.
 
-## Fixed Issues
+### 2. BigQuery Integration
 
-### Stdio Transport in Docker
+The server integrates with Google BigQuery using the Google Cloud client library. It provides the following tools:
 
-Fixed the issue where the Docker container would exit prematurely after receiving the initialize message from Claude Desktop. The solution:
+- `execute_query`: Submit a SQL query to BigQuery, optionally as dry-run
+- `list_datasets`: List all datasets in a project
+- `get_table_schema`: Retrieve schema for a table
+- `get_job_status`: Poll job execution state
+- `cancel_job`: Cancel a running BigQuery job
+- `fetch_results_chunk`: Page through results
 
-1. Run the stdio_server function in a separate thread
-2. Keep the main thread alive with a loop
-3. Ensure proper handling of the initialize → listTools → callTool sequence
+### 3. Authentication
 
-### BigQuery Connection
+The server uses Google Cloud authentication to connect to BigQuery. It supports:
 
-Implemented proper async-based handlers for BigQuery operations to ensure efficient execution of queries and retrieval of results.
+- Service account key authentication
+- Application Default Credentials
+
+### 4. Docker Support
+
+The server can be run in a Docker container, which provides:
+
+- Isolated environment for running the server
+- Easy deployment and distribution
+- Support for both stdio and HTTP transports
+- Volume mounting for credentials
+
+## Design Decisions
+
+### 1. Direct stdio Implementation
+
+The standard MCP stdio_server implementation had issues with Claude Desktop's initialization sequence. To address this, we implemented a custom direct stdio server that:
+
+- Handles the initialize → listTools → callTool sequence
+- Provides immediate, synchronous responses to requests
+- Ensures the server process stays alive after handling requests
+
+### 2. Async/Sync Handling
+
+The server uses a combination of synchronous and asynchronous code:
+
+- Synchronous code for the direct stdio implementation to ensure immediate responses
+- Asynchronous code for BigQuery operations to handle long-running queries
+- asyncio.run() to bridge between synchronous and asynchronous code
+
+### 3. Tool Registration
+
+Tools are registered with the server using the MCP SDK's tool registration mechanism. Each tool has:
+
+- A name and description
+- An input schema that defines the parameters it accepts
+- A handler function that implements the tool's functionality
+
+### 4. Error Handling
+
+The server implements comprehensive error handling:
+
+- JSON-RPC error responses for client errors
+- Detailed logging for server errors
+- Graceful handling of BigQuery API errors
 
 ## Testing
 
-The implementation has been tested with:
+The server has been tested with:
 
-1. **HTTP Transport**: Verified with test_docker_connection.py
-2. **Stdio Transport**: Verified with test_scripts/test_claude_init_sequence.py
-3. **BigQuery Connection**: Verified with test_scripts/test_bigquery_connection.py
-4. **Claude Desktop Simulation**: Verified the exact sequence of requests that Claude Desktop sends
+- Local testing with both stdio and HTTP transports
+- Docker testing with both stdio and HTTP transports
+- Claude Desktop compatibility testing
+- Real BigQuery queries using a service account
 
-## Docker Usage
+## Future Improvements
 
-The Docker container can be run in two modes:
+Potential future improvements include:
 
-1. **HTTP Transport**:
-   ```bash
-   docker run -p 8000:8000 --rm \
-     -v /path/to/credentials:/credentials \
-     -e GOOGLE_APPLICATION_CREDENTIALS=/credentials/service-account-key.json \
-     mcp-bigquery-server --http --host 0.0.0.0 --port 8000
-   ```
-
-2. **Stdio Transport** (for Claude Desktop):
-   ```bash
-   docker run -i --rm \
-     -v /path/to/credentials:/credentials \
-     -e GOOGLE_APPLICATION_CREDENTIALS=/credentials/service-account-key.json \
-     mcp-bigquery-server --stdio
-   ```
-
-## Conclusion
-
-The BigQuery MCP server implementation successfully meets all the requirements specified in spec.md and addresses the specific issues with stdio transport in Docker containers. It provides a robust and efficient interface to BigQuery operations through the Model Context Protocol.
+- Support for more BigQuery features (e.g., streaming inserts, table creation)
+- Enhanced error handling and reporting
+- Performance optimizations for large result sets
+- Support for more authentication methods
+- Integration with other Google Cloud services
