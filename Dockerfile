@@ -16,9 +16,9 @@ RUN pip install --no-cache-dir poetry==1.7.1 && \
 # Copy dependency files only to separate layers
 COPY pyproject.toml poetry.lock* README.md ./
 
-# Install MCP separately with retries
+# Install MCP and FastMCP separately with retries
 RUN for i in 1 2 3 4 5; do \
-      pip install --no-cache-dir mcp==1.6.0 && break || sleep 15; \
+      pip install --no-cache-dir mcp==1.6.0 fastmcp==0.1.0 && break || sleep 15; \
     done
 
 # Install dependencies with retries (without the package itself)

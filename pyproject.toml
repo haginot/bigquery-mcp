@@ -14,6 +14,7 @@ packages = [{include = "mcp_bigquery_server", from = "src"}]
 [tool.poetry.dependencies]
 python = "^3.10"
 mcp = ">=1.6.0,<2.0.0"
+fastmcp = ">=0.1.0,<0.2.0"
 google-cloud-bigquery = ">=3.31.0,<4.0.0"
 fastapi = ">=0.115.12,<0.116.0"
 uvicorn = ">=0.34.1,<0.35.0"
