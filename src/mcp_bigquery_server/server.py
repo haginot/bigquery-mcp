@@ -13,10 +13,9 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import bigquery
 from mcp import Tool, Resource
-from mcp.server.session import ServerSession
-from mcp.types import ServerCapabilities, ToolsCapability, LoggingCapability, ResourcesCapability
-from mcp.server.fastmcp import FastMCP
+from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -56,12 +55,9 @@ class BigQueryMCPServer:
 
         self.bq_client = bigquery.Client()
 
-        self.server = ServerSession(
-            server_info={
-                "name": "mcp-bigquery-server",
-                "version": "1.0.0",
-            },
-            capabilities=self._get_capabilities(),
+        self.server = Server(
+            name="mcp-bigquery-server",
+            version="1.0.0",
         )
 
         self._register_tools()
@@ -71,16 +67,6 @@ class BigQueryMCPServer:
         
         if http_enabled:
             self.app = self._create_fastapi_app()
-
-    def _get_capabilities(self) -> ServerCapabilities:
-        """Get the capabilities supported by this server."""
-        capabilities = ServerCapabilities(
-            tools=ToolsCapability(list_changed=True),
-            logging=LoggingCapability(),
-        )
-        if self.expose_resources:
-            capabilities.resources = ResourcesCapability(list_changed=True)
-        return capabilities
 
     def _register_tools(self) -> None:
         """Register all BigQuery tools with the MCP server."""
@@ -165,7 +151,7 @@ class BigQueryMCPServer:
         ]
 
         for tool in tools:
-            self.server.register_tool(tool.name, self._get_tool_handler(tool.name))
+            self.server.tools.register(tool, self._get_tool_handler(tool.name))
 
     def _create_fastapi_app(self) -> FastAPI:
         """Create a FastAPI app for HTTP transport."""
