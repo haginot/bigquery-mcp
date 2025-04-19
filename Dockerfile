@@ -12,8 +12,10 @@ COPY src/ ./src/
 # Configure Poetry to not create a virtual environment
 RUN poetry config virtualenvs.create false
 
-# Install dependencies
-RUN poetry install --no-dev
+# Install dependencies and ensure latest MCP version
+RUN pip install --upgrade pip && \
+    pip install mcp==1.6.0 && \
+    poetry install --no-dev
 
 # Expose port for HTTP transport
 EXPOSE 8000
