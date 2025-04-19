@@ -140,7 +140,7 @@ class BigQueryMCPServer:
         ]
 
         for tool in tools:
-            self.server.tools.register(tool, self._get_tool_handler(tool.name))
+            self.server.register_tool(tool, self._get_tool_handler(tool.name))
 
     def _get_tool_handler(self, tool_name: str):
         """Get the handler function for a tool."""
@@ -294,7 +294,7 @@ class BigQueryMCPServer:
                     content_type="application/json",
                     content=json.dumps(rows),
                 )
-                self.server.resources.register(resource)
+                self.server.register_resource(resource)
                 
                 return {
                     "jobId": job_id,
@@ -415,7 +415,7 @@ class BigQueryMCPServer:
                     content_type="application/json",
                     content=json.dumps(schema_fields),
                 )
-                self.server.resources.register(resource)
+                self.server.register_resource(resource)
                 
                 return {
                     "projectId": project_id,
