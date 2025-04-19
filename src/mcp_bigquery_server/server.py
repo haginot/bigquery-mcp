@@ -12,19 +12,11 @@ from typing import Any, Dict, List, Optional, Union
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import bigquery
-from mcp import (
-    Capability,
-    CapabilitySet,
-    MCPServer,
-    ServerInfo,
-    StdioTransport,
-    StreamableHTTPTransport,
-    Tool,
-    ToolAnnotation,
-    ToolExecutionError,
-    ToolResult,
-)
-from mcp.resources import Resource
+from mcp import Tool, Resource
+from mcp.server.session import ServerSession
+from mcp.types import ServerCapabilities, ToolsCapability, LoggingCapability, ResourcesCapability
+from mcp.server.fastmcp import FastMCP
+from mcp.server.stdio import StdioServer
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -64,35 +56,30 @@ class BigQueryMCPServer:
 
         self.bq_client = bigquery.Client()
 
-        self.server = MCPServer(
-            server_info=ServerInfo(
-                name="mcp-bigquery-server",
-                version="1.0.0",
-            ),
+        self.server = ServerSession(
+            server_info={
+                "name": "mcp-bigquery-server",
+                "version": "1.0.0",
+            },
             capabilities=self._get_capabilities(),
         )
 
         self._register_tools()
 
-        self.transports = [StdioTransport()]
+        self.stdio_server = None
+        self.fastmcp = None
+        
         if http_enabled:
             self.app = self._create_fastapi_app()
-            self.transports.append(
-                StreamableHTTPTransport(
-                    app=self.app,
-                    host=host,
-                    port=port,
-                )
-            )
 
-    def _get_capabilities(self) -> CapabilitySet:
+    def _get_capabilities(self) -> ServerCapabilities:
         """Get the capabilities supported by this server."""
-        capabilities = CapabilitySet(
-            tools=Capability(list_changed=True),
-            logging=Capability(),
+        capabilities = ServerCapabilities(
+            tools=ToolsCapability(list_changed=True),
+            logging=LoggingCapability(),
         )
         if self.expose_resources:
-            capabilities.resources = Capability(list_changed=True)
+            capabilities.resources = ResourcesCapability(list_changed=True)
         return capabilities
 
     def _register_tools(self) -> None:
@@ -101,7 +88,7 @@ class BigQueryMCPServer:
             Tool(
                 name="execute_query",
                 description="Submit a SQL query to BigQuery, optionally as dry-run",
-                input_schema={
+                inputSchema={
                     "type": "object",
                     "properties": {
                         "projectId": {"type": "string"},
@@ -115,47 +102,33 @@ class BigQueryMCPServer:
                     },
                     "required": ["sql"],
                 },
-                annotations={
-                    ToolAnnotation.READ_ONLY_HINT: True,
-                    ToolAnnotation.OPEN_WORLD_HINT: True,
-                },
-                handler=self._handle_execute_query,
             ),
             Tool(
                 name="get_job_status",
                 description="Poll job execution state",
-                input_schema={
+                inputSchema={
                     "type": "object",
                     "properties": {
                         "jobId": {"type": "string"},
                     },
                     "required": ["jobId"],
                 },
-                annotations={
-                    ToolAnnotation.READ_ONLY_HINT: True,
-                },
-                handler=self._handle_get_job_status,
             ),
             Tool(
                 name="cancel_job",
                 description="Cancel a running BigQuery job",
-                input_schema={
+                inputSchema={
                     "type": "object",
                     "properties": {
                         "jobId": {"type": "string"},
                     },
                     "required": ["jobId"],
                 },
-                annotations={
-                    ToolAnnotation.DESTRUCTIVE_HINT: True,
-                    ToolAnnotation.IDEMPOTENT_HINT: True,
-                },
-                handler=self._handle_cancel_job,
             ),
             Tool(
                 name="fetch_results_chunk",
                 description="Page through results",
-                input_schema={
+                inputSchema={
                     "type": "object",
                     "properties": {
                         "jobId": {"type": "string"},
@@ -164,30 +137,22 @@ class BigQueryMCPServer:
                     },
                     "required": ["jobId"],
                 },
-                annotations={
-                    ToolAnnotation.READ_ONLY_HINT: True,
-                },
-                handler=self._handle_fetch_results_chunk,
             ),
             Tool(
                 name="list_datasets",
                 description="Enumerate datasets visible to the service account",
-                input_schema={
+                inputSchema={
                     "type": "object",
                     "properties": {
                         "projectId": {"type": "string"},
                         "cursor": {"type": "string"},
                     },
                 },
-                annotations={
-                    ToolAnnotation.READ_ONLY_HINT: True,
-                },
-                handler=self._handle_list_datasets,
             ),
             Tool(
                 name="get_table_schema",
                 description="Retrieve schema for a table",
-                input_schema={
+                inputSchema={
                     "type": "object",
                     "properties": {
                         "projectId": {"type": "string"},
@@ -196,15 +161,11 @@ class BigQueryMCPServer:
                     },
                     "required": ["projectId", "datasetId", "tableId"],
                 },
-                annotations={
-                    ToolAnnotation.READ_ONLY_HINT: True,
-                },
-                handler=self._handle_get_table_schema,
             ),
         ]
 
         for tool in tools:
-            self.server.register_tool(tool)
+            self.server.register_tool(tool.name, self._get_tool_handler(tool.name))
 
     def _create_fastapi_app(self) -> FastAPI:
         """Create a FastAPI app for HTTP transport."""
@@ -282,7 +243,19 @@ class BigQueryMCPServer:
         ]
         return any(origin.startswith(allowed) for allowed in allowed_origins)
 
-    async def _handle_execute_query(self, params: Dict[str, Any]) -> ToolResult:
+    def _get_tool_handler(self, tool_name: str):
+        """Get the handler function for a tool."""
+        handlers = {
+            "execute_query": self._handle_execute_query,
+            "get_job_status": self._handle_get_job_status,
+            "cancel_job": self._handle_cancel_job,
+            "fetch_results_chunk": self._handle_fetch_results_chunk,
+            "list_datasets": self._handle_list_datasets,
+            "get_table_schema": self._handle_get_table_schema,
+        }
+        return handlers.get(tool_name)
+
+    async def _handle_execute_query(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle execute_query tool."""
         try:
             sql = params["sql"]
@@ -309,85 +282,56 @@ class BigQueryMCPServer:
             query_job.result(timeout=self.query_timeout_ms / 1000)
 
             if dry_run:
-                return ToolResult(
-                    result={
-                        "bytesProcessed": query_job.total_bytes_processed,
-                        "isDryRun": True,
-                    }
-                )
+                return {
+                    "bytesProcessed": query_job.total_bytes_processed,
+                    "isDryRun": True,
+                }
             else:
-                return ToolResult(
-                    result={
-                        "jobId": query_job.job_id,
-                        "status": query_job.state,
-                        "bytesProcessed": query_job.total_bytes_processed,
-                    }
-                )
+                return {
+                    "jobId": query_job.job_id,
+                    "status": query_job.state,
+                    "bytesProcessed": query_job.total_bytes_processed,
+                }
         except Exception as e:
             logger.error(f"Error executing query: {e}")
-            return ToolResult(
-                is_error=True,
-                error={
-                    "code": -32000,
-                    "message": f"BigQuery error: {str(e)}",
-                    "data": {"error": str(e)},
-                }
-            )
+            raise Exception(f"BigQuery error: {str(e)}")
 
-    async def _handle_get_job_status(self, params: Dict[str, Any]) -> ToolResult:
+    async def _handle_get_job_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle get_job_status tool."""
         try:
             job_id = params["jobId"]
             job = self.bq_client.get_job(job_id)
             
-            return ToolResult(
-                result={
-                    "jobId": job.job_id,
-                    "status": job.state,
-                    "bytesProcessed": job.total_bytes_processed,
-                    "creationTime": job.created.isoformat(),
-                    "startTime": job.started.isoformat() if job.started else None,
-                    "endTime": job.ended.isoformat() if job.ended else None,
-                    "error": job.error_result,
-                }
-            )
+            return {
+                "jobId": job.job_id,
+                "status": job.state,
+                "bytesProcessed": job.total_bytes_processed,
+                "creationTime": job.created.isoformat(),
+                "startTime": job.started.isoformat() if job.started else None,
+                "endTime": job.ended.isoformat() if job.ended else None,
+                "error": job.error_result,
+            }
         except Exception as e:
             logger.error(f"Error getting job status: {e}")
-            return ToolResult(
-                is_error=True,
-                error={
-                    "code": -32000,
-                    "message": f"BigQuery error: {str(e)}",
-                    "data": {"error": str(e)},
-                }
-            )
+            raise Exception(f"BigQuery error: {str(e)}")
 
-    async def _handle_cancel_job(self, params: Dict[str, Any]) -> ToolResult:
+    async def _handle_cancel_job(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle cancel_job tool."""
         try:
             job_id = params["jobId"]
             job = self.bq_client.get_job(job_id)
             job.cancel()
             
-            return ToolResult(
-                result={
-                    "jobId": job.job_id,
-                    "status": "CANCELLED",
-                    "success": True,
-                }
-            )
+            return {
+                "jobId": job.job_id,
+                "status": "CANCELLED",
+                "success": True,
+            }
         except Exception as e:
             logger.error(f"Error cancelling job: {e}")
-            return ToolResult(
-                is_error=True,
-                error={
-                    "code": -32000,
-                    "message": f"BigQuery error: {str(e)}",
-                    "data": {"error": str(e)},
-                }
-            )
+            raise Exception(f"BigQuery error: {str(e)}")
 
-    async def _handle_fetch_results_chunk(self, params: Dict[str, Any]) -> ToolResult:
+    async def _handle_fetch_results_chunk(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle fetch_results_chunk tool."""
         try:
             job_id = params["jobId"]
@@ -397,23 +341,14 @@ class BigQueryMCPServer:
             job = self.bq_client.get_job(job_id)
             
             if job.state != "DONE":
-                return ToolResult(
-                    result={
-                        "jobId": job.job_id,
-                        "status": job.state,
-                        "message": "Job is not complete yet",
-                    }
-                )
+                return {
+                    "jobId": job.job_id,
+                    "status": job.state,
+                    "message": "Job is not complete yet",
+                }
             
             if job.error_result:
-                return ToolResult(
-                    is_error=True,
-                    error={
-                        "code": -32000,
-                        "message": "Query failed",
-                        "data": job.error_result,
-                    }
-                )
+                raise Exception(f"Query failed: {job.error_result}")
             
             results = job.result(start_index=offset, max_results=max_rows)
             schema = [field.name for field in results.schema]
@@ -433,44 +368,33 @@ class BigQueryMCPServer:
                 )
                 self.server.register_resource(resource)
                 
-                return ToolResult(
-                    result={
-                        "jobId": job_id,
-                        "offset": offset,
-                        "rowCount": len(rows),
-                        "schema": schema,
-                        "hasMore": has_more,
-                        "nextOffset": offset + len(rows) if has_more else None,
-                        "results": {
-                            "type": "resource",
-                            "uri": resource_uri,
-                        }
+                return {
+                    "jobId": job_id,
+                    "offset": offset,
+                    "rowCount": len(rows),
+                    "schema": schema,
+                    "hasMore": has_more,
+                    "nextOffset": offset + len(rows) if has_more else None,
+                    "results": {
+                        "type": "resource",
+                        "uri": resource_uri,
                     }
-                )
+                }
             else:
-                return ToolResult(
-                    result={
-                        "jobId": job_id,
-                        "offset": offset,
-                        "rowCount": len(rows),
-                        "schema": schema,
-                        "hasMore": has_more,
-                        "nextOffset": offset + len(rows) if has_more else None,
-                        "results": rows,
-                    }
-                )
+                return {
+                    "jobId": job_id,
+                    "offset": offset,
+                    "rowCount": len(rows),
+                    "schema": schema,
+                    "hasMore": has_more,
+                    "nextOffset": offset + len(rows) if has_more else None,
+                    "results": rows,
+                }
         except Exception as e:
             logger.error(f"Error fetching results: {e}")
-            return ToolResult(
-                is_error=True,
-                error={
-                    "code": -32000,
-                    "message": f"BigQuery error: {str(e)}",
-                    "data": {"error": str(e)},
-                }
-            )
+            raise Exception(f"BigQuery error: {str(e)}")
 
-    async def _handle_list_datasets(self, params: Dict[str, Any]) -> ToolResult:
+    async def _handle_list_datasets(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle list_datasets tool with pagination."""
         try:
             project_id = params.get("projectId")
@@ -484,13 +408,7 @@ class BigQueryMCPServer:
                     cursor_data = json.loads(cursor)
                     start_index = cursor_data.get("index", 0)
                 except (json.JSONDecodeError, TypeError):
-                    return ToolResult(
-                        is_error=True,
-                        error={
-                            "code": -32602,
-                            "message": "Invalid cursor format",
-                        }
-                    )
+                    raise Exception("Invalid cursor format")
             
             datasets = list(self.bq_client.list_datasets(project=project_id))
             
@@ -514,24 +432,15 @@ class BigQueryMCPServer:
             if end_index < len(datasets):
                 next_cursor = json.dumps({"index": end_index})
             
-            return ToolResult(
-                result={
-                    "datasets": dataset_list,
-                    "nextCursor": next_cursor,
-                }
-            )
+            return {
+                "datasets": dataset_list,
+                "nextCursor": next_cursor,
+            }
         except Exception as e:
             logger.error(f"Error listing datasets: {e}")
-            return ToolResult(
-                is_error=True,
-                error={
-                    "code": -32000,
-                    "message": f"BigQuery error: {str(e)}",
-                    "data": {"error": str(e)},
-                }
-            )
+            raise Exception(f"BigQuery error: {str(e)}")
 
-    async def _handle_get_table_schema(self, params: Dict[str, Any]) -> ToolResult:
+    async def _handle_get_table_schema(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle get_table_schema tool."""
         try:
             project_id = params["projectId"]
@@ -572,47 +481,49 @@ class BigQueryMCPServer:
                 )
                 self.server.register_resource(resource)
                 
-                return ToolResult(
-                    result={
-                        "projectId": project_id,
-                        "datasetId": dataset_id,
-                        "tableId": table_id,
-                        "schema": {
-                            "type": "resource",
-                            "uri": resource_uri,
-                        },
-                        "rowCount": table.num_rows,
-                        "creationTime": table.created.isoformat() if table.created else None,
-                        "lastModifiedTime": table.modified.isoformat() if table.modified else None,
-                    }
-                )
+                return {
+                    "projectId": project_id,
+                    "datasetId": dataset_id,
+                    "tableId": table_id,
+                    "schema": {
+                        "type": "resource",
+                        "uri": resource_uri,
+                    },
+                    "rowCount": table.num_rows,
+                    "creationTime": table.created.isoformat() if table.created else None,
+                    "lastModifiedTime": table.modified.isoformat() if table.modified else None,
+                }
             else:
-                return ToolResult(
-                    result={
-                        "projectId": project_id,
-                        "datasetId": dataset_id,
-                        "tableId": table_id,
-                        "schema": schema_fields,
-                        "rowCount": table.num_rows,
-                        "creationTime": table.created.isoformat() if table.created else None,
-                        "lastModifiedTime": table.modified.isoformat() if table.modified else None,
-                    }
-                )
+                return {
+                    "projectId": project_id,
+                    "datasetId": dataset_id,
+                    "tableId": table_id,
+                    "schema": schema_fields,
+                    "rowCount": table.num_rows,
+                    "creationTime": table.created.isoformat() if table.created else None,
+                    "lastModifiedTime": table.modified.isoformat() if table.modified else None,
+                }
         except Exception as e:
             logger.error(f"Error getting table schema: {e}")
-            return ToolResult(
-                is_error=True,
-                error={
-                    "code": -32000,
-                    "message": f"BigQuery error: {str(e)}",
-                    "data": {"error": str(e)},
-                }
-            )
+            raise Exception(f"BigQuery error: {str(e)}")
 
     def start(self) -> None:
         """Start the MCP server with all configured transports."""
-        for transport in self.transports:
-            transport.start(self.server)
+        if self.http_enabled:
+            self.fastmcp = FastMCP(self.server, app=self.app)
+            import uvicorn
+            import asyncio
+            
+            asyncio.create_task(
+                uvicorn.run(
+                    self.app,
+                    host=self.host,
+                    port=self.port,
+                )
+            )
+        else:
+            self.stdio_server = StdioServer(self.server)
+            self.stdio_server.start()
 
 
 def main():
