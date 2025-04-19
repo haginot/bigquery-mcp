@@ -47,8 +47,7 @@ class BigQueryMCPServer:
         self.bq_client = bigquery.Client()
 
         self.mcp = FastMCP(
-            name="mcp-bigquery-server",
-            version="0.1.0"
+            name="mcp-bigquery-server"
         )
 
         self._register_tools()
