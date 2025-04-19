@@ -546,7 +546,23 @@ class BigQueryMCPServer:
                 )
             )
         else:
-            stdio_server(self.server)
+            import signal
+            
+            def handle_sigterm(signum, frame):
+                logger.info("Received SIGTERM signal, shutting down...")
+                sys.exit(0)
+                
+            signal.signal(signal.SIGTERM, handle_sigterm)
+            signal.signal(signal.SIGINT, handle_sigterm)
+            
+            logger.info("Starting stdio server...")
+            try:
+                stdio_server(self.server)
+                logger.info("Stdio server started, waiting for input...")
+                signal.pause()
+            except Exception as e:
+                logger.error(f"Error in stdio server: {e}")
+                raise
 
 
 def main():

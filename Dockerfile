@@ -20,8 +20,9 @@ RUN pip install --upgrade pip && \
 # Expose port for HTTP transport
 EXPOSE 8000
 
-# Set environment variables
+# Set environment variables for proper stdio handling
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONFAULTHANDLER=1
 
 # Create volume mount point for credentials
 VOLUME /credentials
