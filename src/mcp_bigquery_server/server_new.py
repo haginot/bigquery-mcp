@@ -11,8 +11,9 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Union, AsyncGenerator
 
 from google.cloud import bigquery
-from mcp.server import Server
 from mcp import Tool, Resource
+from mcp.server.stdio import stdio_server
+from mcp.server.http import http_server
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,27 +40,16 @@ class BigQueryMCPServer:
         self.query_timeout_ms = query_timeout_ms
         self.bq_client = bigquery.Client()
         
-        self.server = Server(
-            name="mcp-bigquery-server",
-            version="1.0.0",
-            lifespan=self._server_lifespan,
-        )
-        
-        self._register_tools()
+        self.name = "mcp-bigquery-server"
+        self.version = "1.0.0"
+        self.tools = self._register_tools()
+        self.resources = []
 
-    @asynccontextmanager
-    async def _server_lifespan(self, server: Server):
-        """Server lifespan context manager."""
-        logger.info("Starting BigQuery MCP server...")
-        
-        try:
-            yield
-        finally:
-            logger.info("Shutting down BigQuery MCP server...")
+    # Server lifespan is now handled by stdio_server and http_server
 
 
-    def _register_tools(self) -> None:
-        """Register all BigQuery tools with the MCP server."""
+    def _register_tools(self) -> Dict[str, Dict]:
+        """Create and return all BigQuery tools with their handlers."""
         tools = [
             Tool(
                 name="execute_query",
@@ -140,9 +130,12 @@ class BigQueryMCPServer:
             ),
         ]
 
+        tool_handlers = {}
         for tool in tools:
             handler = self._get_tool_handler(tool.name)
-            self.server.tools.register(tool, handler)
+            tool_handlers[tool.name] = {"tool": tool, "handler": handler}
+            
+        return tool_handlers
 
     def _get_tool_handler(self, tool_name: str):
         """Get the handler function for a tool."""
@@ -297,7 +290,7 @@ class BigQueryMCPServer:
                     content=json.dumps(rows),
                 )
                 if self.expose_resources:
-                    self.server.resources.register(resource.uri, resource.content_type, resource.content)
+                    self.resources.append(resource)
                 
                 return {
                     "jobId": job_id,
@@ -419,7 +412,7 @@ class BigQueryMCPServer:
                     content=json.dumps(schema_fields),
                 )
                 if self.expose_resources:
-                    self.server.resources.register(resource.uri, resource.content_type, resource.content)
+                    self.resources.append(resource)
                 
                 return {
                     "projectId": project_id,
@@ -449,11 +442,37 @@ class BigQueryMCPServer:
 
     async def start_stdio(self):
         """Start the server with stdio transport."""
-        await self.server.stdio()
+        logger.info("Starting BigQuery MCP server with stdio transport...")
+        
+        # Prepare tools for stdio_server
+        tools = {}
+        for name, tool_info in self.tools.items():
+            tools[name] = tool_info["handler"]
+        
+        await stdio_server(
+            name=self.name,
+            version=self.version,
+            tools=tools,
+            resources={resource.uri: (resource.content_type, resource.content) for resource in self.resources} if self.expose_resources else None,
+        )
 
     async def start_http(self, host: str = "localhost", port: int = 8000):
         """Start the server with HTTP transport."""
-        await self.server.http(host=host, port=port)
+        logger.info(f"Starting BigQuery MCP server with HTTP transport on {host}:{port}...")
+        
+        # Prepare tools for http_server
+        tools = {}
+        for name, tool_info in self.tools.items():
+            tools[name] = tool_info["handler"]
+        
+        await http_server(
+            name=self.name,
+            version=self.version,
+            tools=tools,
+            resources={resource.uri: (resource.content_type, resource.content) for resource in self.resources} if self.expose_resources else None,
+            host=host,
+            port=port,
+        )
 
 async def main_async():
     """Async main entry point for the MCP BigQuery server."""
