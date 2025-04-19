@@ -557,7 +557,154 @@ class BigQueryMCPServer:
             
             logger.info("Starting stdio server...")
             try:
-                direct_stdio_server(self.server)
+                import sys
+                import json
+                import asyncio
+                
+                sys.stdout.reconfigure(write_through=True)
+                
+                logger.info("Starting direct stdio server in main thread...")
+                
+                while True:
+                    line = sys.stdin.readline()
+                    if not line:
+                        logger.info("End of input stream, exiting...")
+                        break
+                    
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    try:
+                        request = json.loads(line)
+                        logger.info(f"Received request: {json.dumps(request)}")
+                        
+                        method = request.get("method")
+                        params = request.get("params", {})
+                        request_id = request.get("id")
+                        
+                        response = None
+                        
+                        if method == "initialize":
+                            response = {
+                                "jsonrpc": "2.0",
+                                "result": {
+                                    "protocolVersion": params.get("protocolVersion", "2024-11-05"),
+                                    "name": self.server.name,
+                                    "version": self.server.version,
+                                    "capabilities": {},
+                                },
+                                "id": request_id,
+                            }
+                        elif method == "tools/list":
+                            tools = [
+                                {
+                                    "name": "execute_query",
+                                    "description": "Submit a SQL query to BigQuery, optionally as dry-run",
+                                    "inputSchema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "projectId": {"type": "string"},
+                                            "location": {"type": "string"},
+                                            "sql": {"type": "string"},
+                                            "params": {
+                                                "type": "object",
+                                                "additionalProperties": True,
+                                            },
+                                            "dryRun": {"type": "boolean"},
+                                        },
+                                        "required": ["sql"],
+                                    },
+                                },
+                                {
+                                    "name": "list_datasets",
+                                    "description": "List all datasets in a project",
+                                    "inputSchema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "projectId": {"type": "string"},
+                                            "location": {"type": "string"},
+                                        },
+                                    },
+                                },
+                            ]
+                            
+                            response = {
+                                "jsonrpc": "2.0",
+                                "result": {
+                                    "tools": tools,
+                                },
+                                "id": request_id,
+                            }
+                        elif method == "call_tool":
+                            tool_name = params.get("tool")
+                            tool_params = params.get("params", {})
+                            
+                            try:
+                                handler = self._get_tool_handler(tool_name)
+                                if handler:
+                                    result = asyncio.run(handler(tool_params))
+                                    response = {
+                                        "jsonrpc": "2.0",
+                                        "result": result,
+                                        "id": request_id,
+                                    }
+                                else:
+                                    response = {
+                                        "jsonrpc": "2.0",
+                                        "error": {
+                                            "code": -32602,
+                                            "message": f"Unknown tool: {tool_name}",
+                                        },
+                                        "id": request_id,
+                                    }
+                            except Exception as e:
+                                logger.error(f"Error calling tool {tool_name}: {e}")
+                                response = {
+                                    "jsonrpc": "2.0",
+                                    "error": {
+                                        "code": -32603,
+                                        "message": f"Error calling tool {tool_name}: {str(e)}",
+                                    },
+                                    "id": request_id,
+                                }
+                        else:
+                            response = {
+                                "jsonrpc": "2.0",
+                                "error": {
+                                    "code": -32601,
+                                    "message": f"Method not found: {method}",
+                                },
+                                "id": request_id,
+                            }
+                        
+                        if response:
+                            response_json = json.dumps(response)
+                            logger.info(f"Sending response: {response_json}")
+                            print(response_json, flush=True)
+                    except json.JSONDecodeError:
+                        logger.error(f"Invalid JSON: {line}")
+                        error_response = {
+                            "jsonrpc": "2.0",
+                            "error": {
+                                "code": -32700,
+                                "message": "Parse error",
+                            },
+                            "id": None,
+                        }
+                        print(json.dumps(error_response), flush=True)
+                    except Exception as e:
+                        logger.error(f"Error handling request: {e}")
+                        error_response = {
+                            "jsonrpc": "2.0",
+                            "error": {
+                                "code": -32603,
+                                "message": f"Internal error: {str(e)}",
+                            },
+                            "id": None,
+                        }
+                        print(json.dumps(error_response), flush=True)
+                
                 logger.info("Stdio server started, waiting for input...")
                 signal.pause()
             except Exception as e:
