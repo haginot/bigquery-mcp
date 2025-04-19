@@ -146,25 +146,8 @@ def handle_request(server: Server, request: Dict[str, Any]) -> Optional[Dict[str
         tool_name = params.get("tool")
         tool_params = params.get("params", {})
         
-        # Find the tool
-        tool = None
-        for t in server.tools:
-            if t.name == tool_name:
-                tool = t
-                break
-        
-        if not tool:
-            return {
-                "jsonrpc": "2.0",
-                "error": {
-                    "code": -32602,
-                    "message": f"Unknown tool: {tool_name}",
-                },
-                "id": request_id,
-            }
-        
         try:
-            # Call the tool handler
+            # Call the tool handler directly using server.call_tool
             result = asyncio.run(server.call_tool(tool_name, tool_params))
             
             return {
