@@ -21,6 +21,10 @@ def qualify_information_schema_query(sql: str, project_id: str) -> str:
     if not project_id:
         logger.warning("No project ID provided for INFORMATION_SCHEMA query transformation")
         return sql
+    
+    if f"`{project_id}`" in sql or f"`{project_id}." in sql:
+        logger.info(f"Query already contains project ID '{project_id}', skipping transformation")
+        return sql
         
     pattern = r'FROM\s+(?:`?([^`\.]+(?:-[^`\.]+)?)`?\.)?INFORMATION_SCHEMA\.([A-Za-z_]+)'
     
