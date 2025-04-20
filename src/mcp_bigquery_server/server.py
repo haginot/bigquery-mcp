@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 from typing import Any, Dict, List, Optional, Union
 
@@ -308,11 +309,25 @@ class BigQueryMCPServer:
             query_params = params.get("params", {})
             dry_run = params.get("dryRun", False)
 
+            region_specific = False
+            region_location = None
+            
             if "INFORMATION_SCHEMA" in sql.upper():
+                region_match = re.search(r'FROM\s+`?region-([a-z0-9-]+)`?\.INFORMATION_SCHEMA', sql, re.IGNORECASE)
+                if region_match:
+                    region_specific = True
+                    region_code = region_match.group(1)
+                    region_location = region_code.upper()
+                    logger.info(f"Detected region-specific query for region: {region_code}, using location: {region_location}")
+                
                 logger.info(f"Transforming INFORMATION_SCHEMA query: {sql}")
                 sql = qualify_information_schema_query(sql, project_id)
                 logger.info(f"Transformed query: {sql}")
 
+            if region_specific and region_location:
+                logger.info(f"Using region-specific location: {region_location}")
+                location = region_location
+            
             job_config = bigquery.QueryJobConfig(
                 dry_run=dry_run,
                 use_query_cache=True,

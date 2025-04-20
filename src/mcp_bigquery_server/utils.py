@@ -26,8 +26,13 @@ def qualify_information_schema_query(sql: str, project_id: str) -> str:
     def replace(match):
         dataset = match.group(1)
         info_type = match.group(2)
-        if dataset:
+        
+        if dataset and dataset.startswith('region-'):
+            logger.info(f"Detected region-specific dataset: {dataset}")
+            return f'FROM INFORMATION_SCHEMA.{info_type}'
+        elif dataset:
             return f'FROM `{project_id}.{dataset}.INFORMATION_SCHEMA.{info_type}`'
-        return f'FROM `{project_id}.INFORMATION_SCHEMA.{info_type}`'
+        else:
+            return f'FROM `{project_id}.INFORMATION_SCHEMA.{info_type}`'
     
     return re.sub(pattern, replace, sql, flags=re.IGNORECASE)
