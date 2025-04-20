@@ -309,8 +309,13 @@ class BigQueryMCPServer:
                         self.handle_initialize(params, request_id)
                     elif method == "tools/list":
                         self.handle_tools_list(params, request_id)
-                    elif method == "call_tool":
+                    elif method == "call_tool" or method == "tools/call":
                         import asyncio
+                        if method == "tools/call":
+                            tool_name = params.get("name")
+                            tool_params = params.get("arguments", {})
+                            params = {"tool": tool_name, "params": tool_params}
+                            logger.info(f"Converted tools/call to call_tool format: {params}")
                         asyncio.run(self.handle_call_tool(params, request_id))
                     else:
                         self.send_error(request_id, -32601, f"Method not found: {method}")
