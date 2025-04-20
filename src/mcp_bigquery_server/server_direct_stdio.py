@@ -179,16 +179,40 @@ class BigQueryMCPServer:
                 logger.error(f"Error listing datasets: {e}")
                 raise Exception(f"BigQuery error: {str(e)}")
 
-    def send_response(self, id: int, result: Any) -> None:
-        """Send a JSON-RPC response."""
+    def send_response(self, id: int, result: Any, is_tools_call: bool = False) -> None:
+        """Send a JSON-RPC response.
+        
+        Args:
+            id: The request ID to respond to.
+            result: The result data to send.
+            is_tools_call: Whether this is a response to a tools/call request,
+                which requires special formatting for Claude Desktop.
+        """
         if id is None:
             id = 0
             
-        response = {
-            "jsonrpc": "2.0",
-            "result": result,
-            "id": id,
-        }
+        if is_tools_call:
+            result_json = json.dumps(result)
+            formatted_result = {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": result_json
+                    }
+                ]
+            }
+            response = {
+                "jsonrpc": "2.0",
+                "result": formatted_result,
+                "id": id,
+            }
+        else:
+            response = {
+                "jsonrpc": "2.0",
+                "result": result,
+                "id": id,
+            }
+            
         json_str = json.dumps(response)
         logger.info(f"Sending response: {json_str}")
         print(json_str, flush=True)
@@ -325,7 +349,7 @@ class BigQueryMCPServer:
                         "location": location
                     }
                 
-                self.send_response(request_id, result)
+                self.send_response(request_id, result, is_tools_call=True)
                 
             elif tool_name == "list_datasets":
                 project_id = tool_params.get("projectId") or self.default_project_id
@@ -353,7 +377,7 @@ class BigQueryMCPServer:
                     "datasets": dataset_list,
                 }
                 
-                self.send_response(request_id, result)
+                self.send_response(request_id, result, is_tools_call=True)
                 
             else:
                 self.send_error(request_id, -32601, f"Unknown tool: {tool_name}")
