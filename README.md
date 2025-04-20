@@ -7,9 +7,12 @@ A fully-compliant Model Context Protocol (MCP) server that surfaces Google BigQu
 - Implements MCP specification rev 2025-03-26
 - Supports stdio transport (default) and optional HTTP transport
 - Exposes BigQuery operations through MCP Tools
+- Includes direct stdio implementation optimized for Claude Desktop
 - Supports pagination for long result sets
 - Implements logging utilities
 - Handles errors according to JSON-RPC standards
+- Supports environment variable configuration for project ID and location
+- Optimized INFORMATION_SCHEMA query handling
 - Docker support for easy deployment
 
 ## Installation
@@ -82,12 +85,16 @@ docker build -t mcp-bigquery-server .
 docker run -i --rm \
   -v /path/to/credentials:/credentials \
   -e GOOGLE_APPLICATION_CREDENTIALS=/credentials/service-account-key.json \
+  -e PROJECT_ID=your-project-id \
+  -e LOCATION=US \
   mcp-bigquery-server --stdio
 
 # Run with HTTP transport
 docker run -p 8000:8000 --rm \
   -v /path/to/credentials:/credentials \
   -e GOOGLE_APPLICATION_CREDENTIALS=/credentials/service-account-key.json \
+  -e PROJECT_ID=your-project-id \
+  -e LOCATION=US \
   mcp-bigquery-server
 ```
 
@@ -115,6 +122,8 @@ To use this MCP server with Claude Desktop:
    docker run -i --rm \
      -v /path/to/credentials:/credentials \
      -e GOOGLE_APPLICATION_CREDENTIALS=/credentials/service-account-key.json \
+     -e PROJECT_ID=your-project-id \
+     -e LOCATION=US \
      mcp-bigquery-server --stdio
    
    # Or using docker-compose (recommended)
