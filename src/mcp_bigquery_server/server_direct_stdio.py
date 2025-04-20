@@ -6,12 +6,20 @@ but manual stdio handling for better Docker compatibility.
 import argparse
 import json
 import logging
+import os
+import re
 import sys
 import time
 from typing import Any, Dict, List, Optional
 
 from google.cloud import bigquery
 from fastmcp import FastMCP
+from mcp_bigquery_server.utils import qualify_information_schema_query
+from mcp_bigquery_server.env_utils import (
+    get_project_id_from_env,
+    get_location_from_env,
+    get_credentials_path_from_env,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,10 +60,26 @@ class BigQueryMCPServer:
         self.host = host
         self.port = port
         self.query_timeout_ms = query_timeout_ms
-        self.default_project_id = default_project_id
-        self.default_location = default_location
-
-        self.bq_client = bigquery.Client()
+        
+        self.default_project_id = default_project_id or get_project_id_from_env()
+        self.default_location = default_location or get_location_from_env()
+        self.credentials_path = get_credentials_path_from_env()
+        
+        logger.info(f"Using project ID: {self.default_project_id}")
+        logger.info(f"Using location: {self.default_location}")
+        logger.info(f"Using credentials path: {self.credentials_path}")
+        
+        if self.credentials_path and os.path.exists(self.credentials_path):
+            logger.info(f"Credentials file exists at {self.credentials_path}")
+        else:
+            logger.warning(f"Credentials file not found at {self.credentials_path}")
+        
+        if self.default_project_id:
+            logger.info(f"Initializing BigQuery client with project ID: {self.default_project_id}")
+            self.bq_client = bigquery.Client(project=self.default_project_id)
+        else:
+            logger.info("Initializing BigQuery client with default project ID")
+            self.bq_client = bigquery.Client()
 
         self.mcp = FastMCP(
             name="mcp-bigquery-server"
@@ -100,12 +124,16 @@ class BigQueryMCPServer:
                     return {
                         "bytesProcessed": query_job.total_bytes_processed,
                         "isDryRun": True,
+                        "projectId": project,
+                        "location": loc
                     }
                 else:
                     return {
                         "jobId": query_job.job_id,
                         "status": query_job.state,
                         "bytesProcessed": query_job.total_bytes_processed,
+                        "projectId": project,
+                        "location": loc
                     }
             except Exception as e:
                 logger.error(f"Error executing query: {e}")
@@ -133,6 +161,8 @@ class BigQueryMCPServer:
                 
                 return {
                     "datasets": dataset_list,
+                    "projectId": project,
+                    "location": location
                 }
             except Exception as e:
                 logger.error(f"Error listing datasets: {e}")
@@ -235,6 +265,25 @@ class BigQueryMCPServer:
                 query_params = tool_params.get("params")
                 dry_run = tool_params.get("dryRun", False)
                 
+                region_specific = False
+                region_location = None
+                
+                if "INFORMATION_SCHEMA" in sql.upper():
+                    region_match = re.search(r'FROM\s+`?region-([a-z0-9-]+)`?\.INFORMATION_SCHEMA', sql, re.IGNORECASE)
+                    if region_match:
+                        region_specific = True
+                        region_code = region_match.group(1)
+                        region_location = region_code.upper()
+                        logger.info(f"Detected region-specific query for region: {region_code}, using location: {region_location}")
+                    
+                    logger.info(f"Transforming INFORMATION_SCHEMA query: {sql}")
+                    sql = qualify_information_schema_query(sql, project_id)
+                    logger.info(f"Transformed query: {sql}")
+                
+                if region_specific and region_location:
+                    logger.info(f"Using region-specific location: {region_location}")
+                    location = region_location
+                
                 job_config = bigquery.QueryJobConfig(
                     dry_run=dry_run,
                     use_query_cache=True,
@@ -253,12 +302,16 @@ class BigQueryMCPServer:
                     result = {
                         "bytesProcessed": query_job.total_bytes_processed,
                         "isDryRun": True,
+                        "projectId": project_id,
+                        "location": location
                     }
                 else:
                     result = {
                         "jobId": query_job.job_id,
                         "status": query_job.state,
                         "bytesProcessed": query_job.total_bytes_processed,
+                        "projectId": project_id,
+                        "location": location
                     }
                 
                 self.send_response(request_id, result)

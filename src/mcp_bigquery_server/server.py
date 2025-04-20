@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 from typing import Any, Dict, List, Optional, Union
 
@@ -16,6 +17,12 @@ from mcp import Tool, Resource
 from mcp.server import Server
 from mcp_bigquery_server.direct_stdio import direct_stdio_server
 from mcp.server.fastmcp import FastMCP
+from mcp_bigquery_server.utils import qualify_information_schema_query
+from mcp_bigquery_server.env_utils import (
+    get_project_id_from_env,
+    get_location_from_env,
+    get_credentials_path_from_env,
+)
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -37,6 +44,8 @@ class BigQueryMCPServer:
         host: str = "localhost",
         port: int = 8000,
         query_timeout_ms: int = 30000,
+        default_project_id: Optional[str] = None,
+        default_location: Optional[str] = None,
     ):
         """Initialize the BigQuery MCP server.
 
@@ -46,14 +55,33 @@ class BigQueryMCPServer:
             host: Host to bind HTTP server to.
             port: Port to bind HTTP server to.
             query_timeout_ms: Timeout for BigQuery queries in milliseconds.
+            default_project_id: Default Google Cloud project ID to use.
+            default_location: Default BigQuery location/region to use.
         """
         self.expose_resources = expose_resources
         self.http_enabled = http_enabled
         self.host = host
         self.port = port
         self.query_timeout_ms = query_timeout_ms
-
-        self.bq_client = bigquery.Client()
+        self.default_project_id = default_project_id or get_project_id_from_env()
+        self.default_location = default_location or get_location_from_env()
+        self.credentials_path = get_credentials_path_from_env()
+        
+        logger.info(f"Using project ID: {self.default_project_id}")
+        logger.info(f"Using location: {self.default_location}")
+        logger.info(f"Using credentials path: {self.credentials_path}")
+        
+        if self.credentials_path and os.path.exists(self.credentials_path):
+            logger.info(f"Credentials file exists at {self.credentials_path}")
+        else:
+            logger.warning(f"Credentials file not found at {self.credentials_path}")
+        
+        if self.default_project_id:
+            logger.info(f"Initializing BigQuery client with project ID: {self.default_project_id}")
+            self.bq_client = bigquery.Client(project=self.default_project_id)
+        else:
+            logger.info("Initializing BigQuery client with default project ID")
+            self.bq_client = bigquery.Client()
 
         self.server = Server(
             name="mcp-bigquery-server",
@@ -298,6 +326,25 @@ class BigQueryMCPServer:
             query_params = params.get("params", {})
             dry_run = params.get("dryRun", False)
 
+            region_specific = False
+            region_location = None
+            
+            if "INFORMATION_SCHEMA" in sql.upper():
+                region_match = re.search(r'FROM\s+`?region-([a-z0-9-]+)`?\.INFORMATION_SCHEMA', sql, re.IGNORECASE)
+                if region_match:
+                    region_specific = True
+                    region_code = region_match.group(1)
+                    region_location = region_code.upper()
+                    logger.info(f"Detected region-specific query for region: {region_code}, using location: {region_location}")
+                
+                logger.info(f"Transforming INFORMATION_SCHEMA query: {sql}")
+                sql = qualify_information_schema_query(sql, project_id)
+                logger.info(f"Transformed query: {sql}")
+
+            if region_specific and region_location:
+                logger.info(f"Using region-specific location: {region_location}")
+                location = region_location
+            
             job_config = bigquery.QueryJobConfig(
                 dry_run=dry_run,
                 use_query_cache=True,
@@ -319,12 +366,16 @@ class BigQueryMCPServer:
                 return {
                     "bytesProcessed": query_job.total_bytes_processed,
                     "isDryRun": True,
+                    "projectId": project_id,
+                    "location": location
                 }
             else:
                 return {
                     "jobId": query_job.job_id,
                     "status": query_job.state,
                     "bytesProcessed": query_job.total_bytes_processed,
+                    "projectId": project_id,
+                    "location": location
                 }
         except Exception as e:
             logger.error(f"Error executing query: {e}")
@@ -750,6 +801,14 @@ def main():
         default=30000,
         help="Timeout for BigQuery queries in milliseconds",
     )
+    parser.add_argument(
+        "--project-id",
+        help="Default Google Cloud project ID to use",
+    )
+    parser.add_argument(
+        "--location",
+        help="Default BigQuery location/region to use (e.g., 'US', 'asia-northeast1')",
+    )
     args = parser.parse_args()
 
     server = BigQueryMCPServer(
@@ -758,6 +817,8 @@ def main():
         host=args.host,
         port=args.port,
         query_timeout_ms=args.query_timeout_ms,
+        default_project_id=args.project_id,
+        default_location=args.location,
     )
     server.start()
 
