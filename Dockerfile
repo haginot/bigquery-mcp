@@ -39,5 +39,9 @@ VOLUME /credentials
 # Use Python module directly as entrypoint since we're in the app directory
 ENTRYPOINT ["python", "-m", "mcp_bigquery_server"]
 
+# Use a shell script to handle environment variables properly
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 # Default to stdio mode for Claude Desktop compatibility
-CMD ["--stdio"]
+CMD ["/app/docker-entrypoint.sh"]
