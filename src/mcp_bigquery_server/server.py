@@ -129,6 +129,25 @@ class BigQueryMCPServer:
                 },
             ),
             Tool(
+                name="execute_query_with_results",
+                description="Submit a SQL query to BigQuery and return results immediately",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "projectId": {"type": "string"},
+                        "location": {"type": "string"},
+                        "sql": {"type": "string"},
+                        "params": {
+                            "type": "object",
+                            "additionalProperties": True,
+                        },
+                        "dryRun": {"type": "boolean"},
+                        "maxRows": {"type": "integer", "minimum": 1},
+                    },
+                    "required": ["sql"],
+                },
+            ),
+            Tool(
                 name="get_job_status",
                 description="Poll job execution state",
                 inputSchema={
@@ -320,6 +339,7 @@ class BigQueryMCPServer:
         """Get the handler function for a tool."""
         handlers = {
             "execute_query": self._handle_execute_query,
+            "execute_query_with_results": self._handle_execute_query_with_results,
             "get_job_status": self._handle_get_job_status,
             "cancel_job": self._handle_cancel_job,
             "fetch_results_chunk": self._handle_fetch_results_chunk,
@@ -390,6 +410,105 @@ class BigQueryMCPServer:
                 }
         except Exception as e:
             logger.error(f"Error executing query: {e}")
+    async def _handle_execute_query_with_results(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle execute_query_with_results tool."""
+        try:
+            sql = params["sql"]
+            project_id = params.get("projectId")
+            location = params.get("location")
+            query_params = params.get("params", {})
+            dry_run = params.get("dryRun", False)
+            max_rows = params.get("maxRows", 100)
+
+            region_specific = False
+            region_location = None
+            
+            if "INFORMATION_SCHEMA" in sql.upper():
+                region_match = re.search(r'FROM\s+`?region-([a-z0-9-]+)`?\.INFORMATION_SCHEMA', sql, re.IGNORECASE)
+                if region_match:
+                    region_specific = True
+                    region_code = region_match.group(1)
+                    region_location = region_code.upper()
+                    logger.info(f"Detected region-specific query for region: {region_code}, using location: {region_location}")
+                
+                logger.info(f"Transforming INFORMATION_SCHEMA query: {sql}")
+                sql = qualify_information_schema_query(sql, project_id)
+                logger.info(f"Transformed query: {sql}")
+
+            if region_specific and region_location:
+                logger.info(f"Using region-specific location: {region_location}")
+                location = region_location
+            
+            job_config = bigquery.QueryJobConfig(
+                dry_run=dry_run,
+                use_query_cache=True,
+            )
+
+            if query_params:
+                pass
+
+            query_job = self.bq_client.query(
+                sql,
+                job_config=job_config,
+                project=project_id,
+                location=location,
+            )
+
+            if dry_run:
+                query_job.result(timeout=self.query_timeout_ms / 1000)
+                return {
+                    "bytesProcessed": query_job.total_bytes_processed,
+                    "isDryRun": True,
+                    "projectId": project_id,
+                    "location": location
+                }
+            
+            results = query_job.result(timeout=self.query_timeout_ms / 1000)
+            schema = [field.name for field in results.schema]
+            
+            rows = []
+            for i, row in enumerate(results):
+                if i >= max_rows:
+                    break
+                rows.append({field: value for field, value in zip(schema, row.values())})
+            
+            has_more = len(rows) == max_rows
+            
+            if self.expose_resources:
+                resource_uri = f"bq://results/{query_job.job_id}/0"
+                
+                return {
+                    "jobId": query_job.job_id,
+                    "status": query_job.state,
+                    "bytesProcessed": query_job.total_bytes_processed,
+                    "rowCount": len(rows),
+                    "schema": schema,
+                    "hasMore": has_more,
+                    "nextOffset": len(rows) if has_more else None,
+                    "results": {
+                        "type": "resource",
+                        "uri": resource_uri,
+                    },
+                    "projectId": project_id,
+                    "location": location
+                }
+            else:
+                return {
+                    "jobId": query_job.job_id,
+                    "status": query_job.state,
+                    "bytesProcessed": query_job.total_bytes_processed,
+                    "rowCount": len(rows),
+                    "schema": schema,
+                    "hasMore": has_more,
+                    "nextOffset": len(rows) if has_more else None,
+                    "results": rows,
+                    "projectId": project_id,
+                    "location": location
+                }
+        except Exception as e:
+            logger.error(f"Error executing query with results: {e}")
+            raise Exception(f"BigQuery error: {str(e)}")
+
             raise Exception(f"BigQuery error: {str(e)}")
 
     async def _handle_get_job_status(self, params: Dict[str, Any]) -> Dict[str, Any]:

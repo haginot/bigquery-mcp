@@ -158,6 +158,107 @@ class BigQueryMCPServer:
                     }
             except Exception as e:
                 logger.error(f"Error executing query: {e}")
+        @self.mcp.tool()
+        async def execute_query_with_results(
+            sql: str,
+            projectId: Optional[str] = None,
+            location: Optional[str] = None,
+            params: Optional[Dict[str, Any]] = None,
+            dryRun: bool = False,
+            maxRows: int = 100,
+        ) -> Dict[str, Any]:
+            """Submit a SQL query to BigQuery and return results immediately.
+            
+            Args:
+                sql: The SQL query to execute
+                projectId: Optional Google Cloud project ID
+                location: Optional BigQuery location
+                params: Optional query parameters
+                dryRun: Whether to perform a dry run
+                maxRows: Maximum number of rows to return (default: 100)
+                
+            Returns:
+                Query execution results with the first batch of data
+            """
+            try:
+                project = projectId or self.default_project_id
+                loc = location or self.default_location
+                
+                if "INFORMATION_SCHEMA" in sql.upper():
+                    logger.info(f"Transforming INFORMATION_SCHEMA query: {sql}")
+                    sql = qualify_information_schema_query(sql, project)
+                    logger.info(f"Transformed query: {sql}")
+                
+                job_config = bigquery.QueryJobConfig(
+                    dry_run=dryRun,
+                    use_query_cache=True,
+                )
+
+                if params:
+                    pass
+
+                query_job = self.bq_client.query(
+                    sql,
+                    job_config=job_config,
+                    project=project,
+                    location=loc,
+                )
+
+                if dryRun:
+                    query_job.result(timeout=self.query_timeout_ms / 1000)
+                    return {
+                        "bytesProcessed": query_job.total_bytes_processed,
+                        "isDryRun": True,
+                        "projectId": project,
+                        "location": loc
+                    }
+                
+                results = query_job.result(timeout=self.query_timeout_ms / 1000)
+                schema = [field.name for field in results.schema]
+                
+                rows = []
+                for i, row in enumerate(results):
+                    if i >= maxRows:
+                        break
+                    rows.append({field: value for field, value in zip(schema, row.values())})
+                
+                has_more = len(rows) == maxRows
+                
+                if self.expose_resources:
+                    resource_uri = f"bq://results/{query_job.job_id}/0"
+                    
+                    return {
+                        "jobId": query_job.job_id,
+                        "status": query_job.state,
+                        "bytesProcessed": query_job.total_bytes_processed,
+                        "rowCount": len(rows),
+                        "schema": schema,
+                        "hasMore": has_more,
+                        "nextOffset": len(rows) if has_more else None,
+                        "results": {
+                            "type": "resource",
+                            "uri": resource_uri,
+                        },
+                        "projectId": project,
+                        "location": loc
+                    }
+                else:
+                    return {
+                        "jobId": query_job.job_id,
+                        "status": query_job.state,
+                        "bytesProcessed": query_job.total_bytes_processed,
+                        "rowCount": len(rows),
+                        "schema": schema,
+                        "hasMore": has_more,
+                        "nextOffset": len(rows) if has_more else None,
+                        "results": rows,
+                        "projectId": project,
+                        "location": loc
+                    }
+            except Exception as e:
+                logger.error(f"Error executing query with results: {e}")
+                raise Exception(f"BigQuery error: {str(e)}")
+
                 raise Exception(f"BigQuery error: {str(e)}")
 
         @self.mcp.tool()
