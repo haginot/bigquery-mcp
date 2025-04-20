@@ -1,0 +1,24 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "mcp-bigquery-server"
+version = "0.1.0"
+description = "MCP server for Google BigQuery"
+authors = ["Devin AI <devin-ai-integration@users.noreply.github.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "mcp_bigquery_server", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+mcp = ">=1.6.0,<2.0.0"
+fastmcp = ">=0.1.0,<0.2.0"
+google-cloud-bigquery = ">=3.31.0,<4.0.0"
+fastapi = ">=0.115.12,<0.116.0"
+uvicorn = ">=0.34.1,<0.35.0"
+sse-starlette = ">=2.2.0,<3.0.0"
+
+[tool.poetry.scripts]
+mcp-bigquery-server = "mcp_bigquery_server.cli:cli_main"

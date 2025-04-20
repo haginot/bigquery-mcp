@@ -1,0 +1,26 @@
+version: '3'
+
+services:
+  mcp-bigquery-server:
+    build:
+      context: .
+    image: mcp-bigquery-server
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./credentials:/credentials
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/credentials/service-account-key.json
+    command: --http --host 0.0.0.0 --port 8000 --expose-resources
+
+  mcp-bigquery-server-stdio:
+    build:
+      context: .
+    image: mcp-bigquery-server
+    volumes:
+      - ./credentials:/credentials
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/credentials/service-account-key.json
+    stdin_open: true
+    tty: true
+    command: --stdio
