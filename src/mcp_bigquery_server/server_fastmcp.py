@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from google.cloud import bigquery
 from fastmcp import FastMCP
+from mcp_bigquery_server.utils import qualify_information_schema_query
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,6 +29,8 @@ class BigQueryMCPServer:
         host: str = "localhost",
         port: int = 8000,
         query_timeout_ms: int = 30000,
+        default_project_id: Optional[str] = None,
+        default_location: Optional[str] = None,
     ):
         """Initialize the BigQuery MCP server.
 
@@ -37,14 +40,21 @@ class BigQueryMCPServer:
             host: Host to bind HTTP server to.
             port: Port to bind HTTP server to.
             query_timeout_ms: Timeout for BigQuery queries in milliseconds.
+            default_project_id: Default Google Cloud project ID to use.
+            default_location: Default BigQuery location/region to use.
         """
         self.expose_resources = expose_resources
         self.http_enabled = http_enabled
         self.host = host
         self.port = port
         self.query_timeout_ms = query_timeout_ms
+        self.default_project_id = default_project_id
+        self.default_location = default_location
 
-        self.bq_client = bigquery.Client()
+        if self.default_project_id:
+            self.bq_client = bigquery.Client(project=self.default_project_id)
+        else:
+            self.bq_client = bigquery.Client()
 
         self.mcp = FastMCP(
             name="mcp-bigquery-server"
@@ -76,6 +86,14 @@ class BigQueryMCPServer:
                 Query execution results or dry run information
             """
             try:
+                project = projectId or self.default_project_id
+                loc = location or self.default_location
+                
+                if "INFORMATION_SCHEMA" in sql.upper():
+                    logger.info(f"Transforming INFORMATION_SCHEMA query: {sql}")
+                    sql = qualify_information_schema_query(sql, project)
+                    logger.info(f"Transformed query: {sql}")
+                
                 job_config = bigquery.QueryJobConfig(
                     dry_run=dryRun,
                     use_query_cache=True,
@@ -87,8 +105,8 @@ class BigQueryMCPServer:
                 query_job = self.bq_client.query(
                     sql,
                     job_config=job_config,
-                    project=projectId,
-                    location=location,
+                    project=project,
+                    location=loc,
                 )
 
                 query_job.result(timeout=self.query_timeout_ms / 1000)
@@ -357,7 +375,7 @@ class BigQueryMCPServer:
         if self.http_enabled:
             self.mcp.run(transport="sse", host=self.host, port=self.port)
         else:
-            self.mcp.run()  # Default is stdio transport
+            self.mcp.run(transport="stdio")  # Explicitly use stdio transport
 
 
 def main():
@@ -398,6 +416,14 @@ def main():
         default=30000,
         help="Timeout for BigQuery queries in milliseconds",
     )
+    parser.add_argument(
+        "--project-id",
+        help="Default Google Cloud project ID to use",
+    )
+    parser.add_argument(
+        "--location",
+        help="Default BigQuery location/region to use (e.g., 'US', 'asia-northeast1')",
+    )
     args = parser.parse_args()
 
     logger.info("Starting BigQuery MCP server with FastMCP implementation...")
@@ -408,6 +434,8 @@ def main():
         host=args.host,
         port=args.port,
         query_timeout_ms=args.query_timeout_ms,
+        default_project_id=args.project_id,
+        default_location=args.location,
     )
     server.start()
 
