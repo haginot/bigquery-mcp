@@ -256,14 +256,21 @@ class BigQueryMCPServer:
                 
                 datasets = list(self.bq_client.list_datasets(project=project_id))
                 
-                dataset_list = [
-                    {
+                dataset_list = []
+                for ds in datasets:
+                    try:
+                        dataset_ref = self.bq_client.dataset(ds.dataset_id, project=ds.project)
+                        dataset = self.bq_client.get_dataset(dataset_ref)
+                        location = dataset.location
+                    except Exception as e:
+                        logger.warning(f"Could not get location for dataset {ds.dataset_id}: {e}")
+                        location = None
+                        
+                    dataset_list.append({
                         "id": ds.dataset_id,
                         "projectId": ds.project,
-                        "location": ds.location,
-                    }
-                    for ds in datasets
-                ]
+                        "location": location,
+                    })
                 
                 result = {
                     "datasets": dataset_list,
@@ -317,6 +324,12 @@ class BigQueryMCPServer:
                             params = {"tool": tool_name, "params": tool_params}
                             logger.info(f"Converted tools/call to call_tool format: {params}")
                         asyncio.run(self.handle_call_tool(params, request_id))
+                    elif method == "notifications/initialized" or method.startswith("notifications/"):
+                        logger.info(f"Received notification: {method}")
+                    elif method == "resources/list":
+                        self.send_response(request_id, {"resources": []})
+                    elif method == "prompts/list":
+                        self.send_response(request_id, {"prompts": []})
                     else:
                         self.send_error(request_id, -32601, f"Method not found: {method}")
                 except json.JSONDecodeError:
