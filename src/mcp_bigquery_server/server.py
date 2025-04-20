@@ -22,6 +22,7 @@ from mcp_bigquery_server.env_utils import (
     get_project_id_from_env,
     get_location_from_env,
     get_credentials_path_from_env,
+    load_credentials_from_file,
 )
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
@@ -71,17 +72,27 @@ class BigQueryMCPServer:
         logger.info(f"Using location: {self.default_location}")
         logger.info(f"Using credentials path: {self.credentials_path}")
         
-        if self.credentials_path and os.path.exists(self.credentials_path):
-            logger.info(f"Credentials file exists at {self.credentials_path}")
-        else:
-            logger.warning(f"Credentials file not found at {self.credentials_path}")
+        credentials = None
+        if self.credentials_path:
+            try:
+                credentials = load_credentials_from_file(self.credentials_path)
+                
+                if not self.default_project_id and credentials:
+                    self.default_project_id = credentials.project_id
+                    logger.info(f"Using project ID from service account: {self.default_project_id}")
+            except FileNotFoundError as e:
+                logger.error(f"Error loading credentials: {e}")
+                raise
         
-        if self.default_project_id:
-            logger.info(f"Initializing BigQuery client with project ID: {self.default_project_id}")
-            self.bq_client = bigquery.Client(project=self.default_project_id)
-        else:
-            logger.info("Initializing BigQuery client with default project ID")
-            self.bq_client = bigquery.Client()
+        self.bq_client = bigquery.Client(
+            project=self.default_project_id,
+            credentials=credentials,
+        )
+        
+        logger.info(
+            f"BigQuery client initialized for project '{self.bq_client.project}' "
+            f"using service account '{self.bq_client._credentials.service_account_email}'"
+        )
 
         self.server = Server(
             name="mcp-bigquery-server",
