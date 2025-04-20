@@ -7,7 +7,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1 \
     PIP_DEFAULT_TIMEOUT=100 \
     PIP_RETRIES=3 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    GOOGLE_APPLICATION_CREDENTIALS=/app/key.json
 
 # Install toolchain first to leverage caching
 RUN pip install --no-cache-dir poetry==1.7.1 && \
@@ -43,4 +44,5 @@ RUN chmod +x /app/docker-entrypoint.sh
 # Use the entrypoint script as the main entry point
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
-# No default CMD needed as the entrypoint script handles everything
+# Default command arguments (these can be overridden at runtime)
+CMD ["--project-id", "amazon-study-db", "--location", "US"]
