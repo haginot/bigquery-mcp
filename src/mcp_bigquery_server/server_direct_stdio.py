@@ -33,6 +33,8 @@ class BigQueryMCPServer:
         host: str = "localhost",
         port: int = 8000,
         query_timeout_ms: int = 30000,
+        default_project_id: Optional[str] = None,
+        default_location: Optional[str] = None,
     ):
         """Initialize the BigQuery MCP server.
 
@@ -42,12 +44,16 @@ class BigQueryMCPServer:
             host: Host to bind HTTP server to.
             port: Port to bind HTTP server to.
             query_timeout_ms: Timeout for BigQuery queries in milliseconds.
+            default_project_id: Default Google Cloud project ID to use.
+            default_location: Default BigQuery location/region to use.
         """
         self.expose_resources = expose_resources
         self.http_enabled = http_enabled
         self.host = host
         self.port = port
         self.query_timeout_ms = query_timeout_ms
+        self.default_project_id = default_project_id
+        self.default_location = default_location
 
         self.bq_client = bigquery.Client()
 
@@ -70,6 +76,9 @@ class BigQueryMCPServer:
         ) -> Dict[str, Any]:
             """Submit a SQL query to BigQuery, optionally as dry-run."""
             try:
+                project = projectId or self.default_project_id
+                loc = location or self.default_location
+                
                 job_config = bigquery.QueryJobConfig(
                     dry_run=dryRun,
                     use_query_cache=True,
@@ -81,8 +90,8 @@ class BigQueryMCPServer:
                 query_job = self.bq_client.query(
                     sql,
                     job_config=job_config,
-                    project=projectId,
-                    location=location,
+                    project=project,
+                    location=loc,
                 )
 
                 query_job.result(timeout=self.query_timeout_ms / 1000)
@@ -105,10 +114,13 @@ class BigQueryMCPServer:
         @self.mcp.tool()
         async def list_datasets(
             projectId: Optional[str] = None,
+            location: Optional[str] = None,
         ) -> Dict[str, Any]:
             """List all datasets in a project."""
             try:
-                datasets = list(self.bq_client.list_datasets(project=projectId))
+                project = projectId or self.default_project_id
+                
+                datasets = list(self.bq_client.list_datasets(project=project))
                 
                 dataset_list = [
                     {
@@ -218,8 +230,8 @@ class BigQueryMCPServer:
         try:
             if tool_name == "execute_query":
                 sql = tool_params.get("sql")
-                project_id = tool_params.get("projectId")
-                location = tool_params.get("location")
+                project_id = tool_params.get("projectId") or self.default_project_id
+                location = tool_params.get("location") or self.default_location
                 query_params = tool_params.get("params")
                 dry_run = tool_params.get("dryRun", False)
                 
@@ -252,7 +264,8 @@ class BigQueryMCPServer:
                 self.send_response(request_id, result)
                 
             elif tool_name == "list_datasets":
-                project_id = tool_params.get("projectId")
+                project_id = tool_params.get("projectId") or self.default_project_id
+                location = tool_params.get("location") or self.default_location
                 
                 datasets = list(self.bq_client.list_datasets(project=project_id))
                 
@@ -261,15 +274,15 @@ class BigQueryMCPServer:
                     try:
                         dataset_ref = self.bq_client.dataset(ds.dataset_id, project=ds.project)
                         dataset = self.bq_client.get_dataset(dataset_ref)
-                        location = dataset.location
+                        ds_location = dataset.location
                     except Exception as e:
                         logger.warning(f"Could not get location for dataset {ds.dataset_id}: {e}")
-                        location = None
+                        ds_location = None
                         
                     dataset_list.append({
                         "id": ds.dataset_id,
                         "projectId": ds.project,
-                        "location": location,
+                        "location": ds_location,
                     })
                 
                 result = {
@@ -389,6 +402,14 @@ def main():
         default=30000,
         help="Timeout for BigQuery queries in milliseconds",
     )
+    parser.add_argument(
+        "--project-id",
+        help="Default Google Cloud project ID to use",
+    )
+    parser.add_argument(
+        "--location",
+        help="Default BigQuery location/region to use (e.g., 'US', 'asia-northeast1')",
+    )
     args = parser.parse_args()
 
     logger.info("Starting BigQuery MCP server with direct stdio handling...")
@@ -399,6 +420,8 @@ def main():
         host=args.host,
         port=args.port,
         query_timeout_ms=args.query_timeout_ms,
+        default_project_id=args.project_id,
+        default_location=args.location,
     )
     server.start()
 
