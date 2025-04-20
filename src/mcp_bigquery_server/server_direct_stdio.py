@@ -6,6 +6,7 @@ but manual stdio handling for better Docker compatibility.
 import argparse
 import json
 import logging
+import os
 import re
 import sys
 import time
@@ -14,6 +15,11 @@ from typing import Any, Dict, List, Optional
 from google.cloud import bigquery
 from fastmcp import FastMCP
 from mcp_bigquery_server.utils import qualify_information_schema_query
+from mcp_bigquery_server.env_utils import (
+    get_project_id_from_env,
+    get_location_from_env,
+    get_credentials_path_from_env,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,12 +60,18 @@ class BigQueryMCPServer:
         self.host = host
         self.port = port
         self.query_timeout_ms = query_timeout_ms
-        self.default_project_id = default_project_id
-        self.default_location = default_location
-
+        
+        self.default_project_id = default_project_id or get_project_id_from_env()
+        self.default_location = default_location or get_location_from_env()
+        
+        logger.info(f"Using project ID: {self.default_project_id}")
+        logger.info(f"Using location: {self.default_location}")
+        
         if self.default_project_id:
+            logger.info(f"Initializing BigQuery client with project ID: {self.default_project_id}")
             self.bq_client = bigquery.Client(project=self.default_project_id)
         else:
+            logger.info("Initializing BigQuery client with default project ID")
             self.bq_client = bigquery.Client()
 
         self.mcp = FastMCP(
