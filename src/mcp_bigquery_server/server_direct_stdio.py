@@ -117,12 +117,16 @@ class BigQueryMCPServer:
                     return {
                         "bytesProcessed": query_job.total_bytes_processed,
                         "isDryRun": True,
+                        "projectId": project,
+                        "location": loc
                     }
                 else:
                     return {
                         "jobId": query_job.job_id,
                         "status": query_job.state,
                         "bytesProcessed": query_job.total_bytes_processed,
+                        "projectId": project,
+                        "location": loc
                     }
             except Exception as e:
                 logger.error(f"Error executing query: {e}")
@@ -150,6 +154,8 @@ class BigQueryMCPServer:
                 
                 return {
                     "datasets": dataset_list,
+                    "projectId": project,
+                    "location": location
                 }
             except Exception as e:
                 logger.error(f"Error listing datasets: {e}")
