@@ -3,6 +3,7 @@ Utility functions for environment variable handling in the BigQuery MCP server.
 """
 import os
 import logging
+from google.oauth2 import service_account
 
 logger = logging.getLogger("mcp-bigquery-server")
 
@@ -48,3 +49,28 @@ def get_credentials_path_from_env():
         Credentials path from environment variables or None
     """
     return get_env_or_default("GOOGLE_APPLICATION_CREDENTIALS")
+
+def load_credentials_from_file(path: str):
+    """
+    Load service-account credentials or raise FileNotFoundError.
+    
+    Args:
+        path: Path to the service account JSON file
+        
+    Returns:
+        Service account credentials object
+        
+    Raises:
+        FileNotFoundError: If the credentials file doesn't exist
+    """
+    if not path or not os.path.exists(path):
+        raise FileNotFoundError(
+            f"GOOGLE_APPLICATION_CREDENTIALS file not found: {path}"
+        )
+    
+    creds = service_account.Credentials.from_service_account_file(
+        path,
+        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+    logger.info(f"Loaded credentials for service account: {creds.service_account_email}")
+    return creds
