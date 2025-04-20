@@ -12,7 +12,7 @@ docker build -t mcp-bigquery-server .
 
 # Run the Claude Desktop simulator against the Docker container
 echo "Running Claude Desktop simulator against MCP BigQuery server..."
-python3 test_scripts/claude_simulator.py | docker run -i --rm \
+python3 $(dirname "$0")/claude_simulator.py | docker run -i --rm \
   -v $(pwd)/credentials:/credentials \
   -e GOOGLE_APPLICATION_CREDENTIALS=/credentials/service-account-key.json \
   mcp-bigquery-server --stdio

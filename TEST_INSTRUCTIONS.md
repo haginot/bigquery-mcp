@@ -41,7 +41,7 @@ This document provides detailed instructions for testing the BigQuery MCP server
 
 3. In a separate terminal, run the HTTP test script:
    ```bash
-   python test_docker_connection.py
+   python tests/docker/test_docker_connection.py
    ```
 
 ### Stdio Transport Test (Claude Desktop Simulation)
@@ -53,12 +53,13 @@ This document provides detailed instructions for testing the BigQuery MCP server
 
 2. Run the test script that simulates Claude Desktop's initialization sequence:
    ```bash
-   ./test_scripts/run_claude_init_test.sh
+   ./tests/utils/test_claude_desktop.sh
    ```
 
 3. For a more comprehensive test that includes actual BigQuery operations:
    ```bash
-   ./test_scripts/run_bigquery_connection_test.sh
+   # Run the BigQuery connection test
+   python tests/bigquery/test_bigquery.py
    ```
 
 ## Testing with Docker Compose
@@ -97,12 +98,21 @@ This document provides detailed instructions for testing the BigQuery MCP server
 
 ## Test Scripts
 
-The repository includes several test scripts:
+テストスクリプトは以下のディレクトリに整理されています：
 
-- `test_docker_connection.py`: Tests HTTP transport
-- `test_docker_stdio.py`: Tests stdio transport with basic requests
-- `test_scripts/test_claude_init_sequence.py`: Simulates Claude Desktop's initialization sequence
-- `test_scripts/test_bigquery_connection.py`: Tests actual BigQuery connection with queries
+- `tests/bigquery/`: BigQuery操作の直接テスト
+- `tests/claude_desktop/`: Claude Desktopとの統合テスト
+- `tests/docker/`: Dockerコンテナのテスト
+- `tests/config/`: 設定・環境変数のテスト
+- `tests/information_schema/`: INFORMATION_SCHEMAクエリのテスト
+- `tests/utils/`: テスト用ユーティリティ
+
+主要なテストスクリプト：
+
+- `tests/docker/test_docker_connection.py`: HTTP transportのテスト
+- `tests/docker/test_docker_stdio.py`: stdio transportの基本リクエストテスト
+- `tests/utils/claude_simulator.py`: Claude Desktopの初期化シーケンスをシミュレート
+- `tests/bigquery/test_bigquery.py`: BigQuery接続と実際のクエリをテスト
 
 ## Troubleshooting
 

@@ -9,7 +9,7 @@ import os
 import sys
 from typing import Dict, List, Optional
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../src"))
 
 logging.basicConfig(
     level=logging.INFO,
