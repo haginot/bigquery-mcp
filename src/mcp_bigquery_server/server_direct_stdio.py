@@ -148,6 +148,79 @@ class BigQueryMCPServer:
                     }
             except Exception as e:
                 logger.error(f"Error executing query: {e}")
+        @self.mcp.tool()
+        async def execute_query_with_results(
+            sql: str,
+            projectId: Optional[str] = None,
+            location: Optional[str] = None,
+            params: Optional[Dict[str, Any]] = None,
+            dryRun: bool = False,
+            maxRows: int = 100,
+        ) -> Dict[str, Any]:
+            """Submit a SQL query to BigQuery and return results immediately."""
+            try:
+                project = projectId or self.default_project_id
+                loc = location or self.default_location
+                
+                if "INFORMATION_SCHEMA" in sql.upper():
+                    region_match = re.search(r'FROM\s+`?region-([a-z0-9-]+)`?\.INFORMATION_SCHEMA', sql, re.IGNORECASE)
+                    if region_match:
+                        region_location = region_match.group(1).upper()
+                        logger.info(f"Detected region-specific query for region: {region_match.group(1)}, using location: {region_location}")
+                        loc = region_location
+                    
+                    logger.info(f"Transforming INFORMATION_SCHEMA query: {sql}")
+                    sql = qualify_information_schema_query(sql, project)
+                    logger.info(f"Transformed query: {sql}")
+                
+                job_config = bigquery.QueryJobConfig(
+                    dry_run=dryRun,
+                    use_query_cache=True,
+                )
+
+                query_job = self.bq_client.query(
+                    sql,
+                    job_config=job_config,
+                    project=project,
+                    location=loc,
+                )
+
+                if dryRun:
+                    query_job.result(timeout=self.query_timeout_ms / 1000)
+                    return {
+                        "bytesProcessed": query_job.total_bytes_processed,
+                        "isDryRun": True,
+                        "projectId": project,
+                        "location": loc
+                    }
+                
+                results = query_job.result(timeout=self.query_timeout_ms / 1000)
+                schema = [field.name for field in results.schema]
+                
+                rows = []
+                for i, row in enumerate(results):
+                    if i >= maxRows:
+                        break
+                    rows.append({field: value for field, value in zip(schema, row.values())})
+                
+                has_more = len(rows) == maxRows
+                
+                return {
+                    "jobId": query_job.job_id,
+                    "status": query_job.state,
+                    "bytesProcessed": query_job.total_bytes_processed,
+                    "rowCount": len(rows),
+                    "schema": schema,
+                    "hasMore": has_more,
+                    "nextOffset": len(rows) if has_more else None,
+                    "results": rows,
+                    "projectId": project,
+                    "location": loc
+                }
+            except Exception as e:
+                logger.error(f"Error executing query with results: {e}")
+                raise Exception(f"BigQuery error: {str(e)}")
+
                 raise Exception(f"BigQuery error: {str(e)}")
 
         @self.mcp.tool()
@@ -271,6 +344,25 @@ class BigQueryMCPServer:
                 },
             },
             {
+                "name": "execute_query_with_results",
+                "description": "Submit a SQL query to BigQuery and return results immediately",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "projectId": {"type": "string"},
+                        "location": {"type": "string"},
+                        "sql": {"type": "string"},
+                        "params": {
+                            "type": "object",
+                            "additionalProperties": True,
+                        },
+                        "dryRun": {"type": "boolean"},
+                        "maxRows": {"type": "integer", "minimum": 1},
+                    },
+                    "required": ["sql"],
+                },
+            },
+            {
                 "name": "list_datasets",
                 "description": "List all datasets in a project",
                 "inputSchema": {
@@ -345,6 +437,80 @@ class BigQueryMCPServer:
                         "jobId": query_job.job_id,
                         "status": query_job.state,
                         "bytesProcessed": query_job.total_bytes_processed,
+                        "projectId": project_id,
+                        "location": location
+                    }
+                
+                self.send_response(request_id, result, is_tools_call=True)
+                
+            elif tool_name == "execute_query_with_results":
+                sql = tool_params.get("sql")
+                project_id = tool_params.get("projectId") or self.default_project_id
+                location = tool_params.get("location") or self.default_location
+                query_params = tool_params.get("params")
+                dry_run = tool_params.get("dryRun", False)
+                max_rows = tool_params.get("maxRows", 100)
+                
+                region_specific = False
+                region_location = None
+                
+                if "INFORMATION_SCHEMA" in sql.upper():
+                    region_match = re.search(r'FROM\s+`?region-([a-z0-9-]+)`?\.INFORMATION_SCHEMA', sql, re.IGNORECASE)
+                    if region_match:
+                        region_specific = True
+                        region_code = region_match.group(1)
+                        region_location = region_code.upper()
+                        logger.info(f"Detected region-specific query for region: {region_code}, using location: {region_location}")
+                    
+                    logger.info(f"Transforming INFORMATION_SCHEMA query: {sql}")
+                    sql = qualify_information_schema_query(sql, project_id)
+                    logger.info(f"Transformed query: {sql}")
+                
+                if region_specific and region_location:
+                    logger.info(f"Using region-specific location: {region_location}")
+                    location = region_location
+                
+                job_config = bigquery.QueryJobConfig(
+                    dry_run=dry_run,
+                    use_query_cache=True,
+                )
+                
+                query_job = self.bq_client.query(
+                    sql,
+                    job_config=job_config,
+                    project=project_id,
+                    location=location,
+                )
+                
+                if dry_run:
+                    query_job.result(timeout=self.query_timeout_ms / 1000)
+                    result = {
+                        "bytesProcessed": query_job.total_bytes_processed,
+                        "isDryRun": True,
+                        "projectId": project_id,
+                        "location": location
+                    }
+                else:
+                    results = query_job.result(timeout=self.query_timeout_ms / 1000)
+                    schema = [field.name for field in results.schema]
+                    
+                    rows = []
+                    for i, row in enumerate(results):
+                        if i >= max_rows:
+                            break
+                        rows.append({field: value for field, value in zip(schema, row.values())})
+                    
+                    has_more = len(rows) == max_rows
+                    
+                    result = {
+                        "jobId": query_job.job_id,
+                        "status": query_job.state,
+                        "bytesProcessed": query_job.total_bytes_processed,
+                        "rowCount": len(rows),
+                        "schema": schema,
+                        "hasMore": has_more,
+                        "nextOffset": len(rows) if has_more else None,
+                        "results": rows,
                         "projectId": project_id,
                         "location": location
                     }

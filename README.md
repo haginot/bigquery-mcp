@@ -136,6 +136,7 @@ Claude will now have access to all BigQuery operations through the MCP server.
 The server exposes the following BigQuery operations as MCP tools:
 
 - `execute_query`: Submit a SQL query to BigQuery, optionally as dry-run
+- `execute_query_with_results`: Submit a SQL query to BigQuery and return results immediately
 - `get_job_status`: Poll job execution state
 - `cancel_job`: Cancel a running BigQuery job
 - `fetch_results_chunk`: Page through results
