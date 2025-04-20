@@ -128,6 +128,9 @@ class BigQueryMCPServer:
 
     def send_response(self, id: int, result: Any) -> None:
         """Send a JSON-RPC response."""
+        if id is None:
+            id = 0
+            
         response = {
             "jsonrpc": "2.0",
             "result": result,
@@ -139,6 +142,9 @@ class BigQueryMCPServer:
 
     def send_error(self, id: int, code: int, message: str) -> None:
         """Send a JSON-RPC error response."""
+        if id is None:
+            id = 0
+            
         response = {
             "jsonrpc": "2.0",
             "error": {
@@ -296,6 +302,9 @@ class BigQueryMCPServer:
                     
                     logger.info(f"Received request: {method} with id {request_id}")
                     
+                    if request_id is None:
+                        request_id = 0
+                        
                     if method == "initialize":
                         self.handle_initialize(params, request_id)
                     elif method == "tools/list":
