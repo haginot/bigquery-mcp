@@ -56,12 +56,27 @@ execute_query_default_request = {
     "id": 3
 }
 
+execute_query_explicit_request = {
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+        "name": "execute_query",
+        "arguments": {
+            "projectId": "query-management-and-answering",
+            "sql": "SELECT 1 as test",
+            "dryRun": True
+        }
+    },
+    "id": 4
+}
+
 if __name__ == "__main__":
     print("Testing MCP BigQuery server with project ID and region configuration...", file=sys.stderr)
     send_request(initialize_request)
     send_request(tools_list_request)
     send_request(list_datasets_default_request)
     send_request(execute_query_default_request)
+    send_request(execute_query_explicit_request)
     print("Test completed", file=sys.stderr)
     try:
         while True:
