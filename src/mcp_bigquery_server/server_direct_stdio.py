@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from google.cloud import bigquery
 from fastmcp import FastMCP
+from mcp_bigquery_server.utils import qualify_information_schema_query
 
 logging.basicConfig(
     level=logging.INFO,
@@ -234,6 +235,12 @@ class BigQueryMCPServer:
                 location = tool_params.get("location") or self.default_location
                 query_params = tool_params.get("params")
                 dry_run = tool_params.get("dryRun", False)
+                
+                # Transform INFORMATION_SCHEMA queries if needed
+                if "INFORMATION_SCHEMA" in sql.upper():
+                    logger.info(f"Transforming INFORMATION_SCHEMA query: {sql}")
+                    sql = qualify_information_schema_query(sql, project_id)
+                    logger.info(f"Transformed query: {sql}")
                 
                 job_config = bigquery.QueryJobConfig(
                     dry_run=dry_run,

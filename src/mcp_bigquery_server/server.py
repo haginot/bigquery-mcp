@@ -16,6 +16,7 @@ from mcp import Tool, Resource
 from mcp.server import Server
 from mcp_bigquery_server.direct_stdio import direct_stdio_server
 from mcp.server.fastmcp import FastMCP
+from mcp_bigquery_server.utils import qualify_information_schema_query
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -297,6 +298,11 @@ class BigQueryMCPServer:
             location = params.get("location")
             query_params = params.get("params", {})
             dry_run = params.get("dryRun", False)
+
+            if "INFORMATION_SCHEMA" in sql.upper():
+                logger.info(f"Transforming INFORMATION_SCHEMA query: {sql}")
+                sql = qualify_information_schema_query(sql, project_id)
+                logger.info(f"Transformed query: {sql}")
 
             job_config = bigquery.QueryJobConfig(
                 dry_run=dry_run,
