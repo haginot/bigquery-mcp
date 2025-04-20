@@ -18,6 +18,11 @@ from mcp.server import Server
 from mcp_bigquery_server.direct_stdio import direct_stdio_server
 from mcp.server.fastmcp import FastMCP
 from mcp_bigquery_server.utils import qualify_information_schema_query
+from mcp_bigquery_server.env_utils import (
+    get_project_id_from_env,
+    get_location_from_env,
+    get_credentials_path_from_env,
+)
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -58,12 +63,24 @@ class BigQueryMCPServer:
         self.host = host
         self.port = port
         self.query_timeout_ms = query_timeout_ms
-        self.default_project_id = default_project_id
-        self.default_location = default_location
-
+        self.default_project_id = default_project_id or get_project_id_from_env()
+        self.default_location = default_location or get_location_from_env()
+        self.credentials_path = get_credentials_path_from_env()
+        
+        logger.info(f"Using project ID: {self.default_project_id}")
+        logger.info(f"Using location: {self.default_location}")
+        logger.info(f"Using credentials path: {self.credentials_path}")
+        
+        if self.credentials_path and os.path.exists(self.credentials_path):
+            logger.info(f"Credentials file exists at {self.credentials_path}")
+        else:
+            logger.warning(f"Credentials file not found at {self.credentials_path}")
+        
         if self.default_project_id:
+            logger.info(f"Initializing BigQuery client with project ID: {self.default_project_id}")
             self.bq_client = bigquery.Client(project=self.default_project_id)
         else:
+            logger.info("Initializing BigQuery client with default project ID")
             self.bq_client = bigquery.Client()
 
         self.server = Server(

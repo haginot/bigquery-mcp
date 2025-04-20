@@ -63,9 +63,16 @@ class BigQueryMCPServer:
         
         self.default_project_id = default_project_id or get_project_id_from_env()
         self.default_location = default_location or get_location_from_env()
+        self.credentials_path = get_credentials_path_from_env()
         
         logger.info(f"Using project ID: {self.default_project_id}")
         logger.info(f"Using location: {self.default_location}")
+        logger.info(f"Using credentials path: {self.credentials_path}")
+        
+        if self.credentials_path and os.path.exists(self.credentials_path):
+            logger.info(f"Credentials file exists at {self.credentials_path}")
+        else:
+            logger.warning(f"Credentials file not found at {self.credentials_path}")
         
         if self.default_project_id:
             logger.info(f"Initializing BigQuery client with project ID: {self.default_project_id}")
