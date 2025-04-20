@@ -7,25 +7,25 @@ All notable changes to the BigQuery MCP Server project will be documented in thi
 ## [1.0.0] - 2025-04-20
 
 ### Added
-- 初期実装：Model Context Protocol (MCP) 仕様 rev 2025-03-26に準拠
-- stioトランスポート（デフォルト）とHTTPトランスポートのサポート
-- BigQuery操作へのアクセスを提供するMCP Toolsの実装
-- 長い結果セットのページネーションサポート
-- ロギングユーティリティの実装
-- JSON-RPC標準に従ったエラーハンドリング
-- 簡単な展開のためのDockerサポート
-- Claude Desktopとの互換性向上のための直接的なstdioサーバー実装
-- `execute_query_with_results`ツール：結果を即時に返すSQLクエリの実行
+- Initial implementation: Compliant with Model Context Protocol (MCP) specification rev 2025-03-26
+- Support for stdio transport (default) and HTTP transport
+- Implementation of MCP Tools providing access to BigQuery operations
+- Pagination support for long result sets
+- Implementation of logging utilities
+- Error handling according to JSON-RPC standards
+- Docker support for easy deployment
+- Direct stdio server implementation for improved Claude Desktop compatibility
+- `execute_query_with_results` tool: Execute SQL queries with immediate results
 
 ### Fixed
-- DockerコンテナでのClaude Desktop互換性の問題を修正
-- stdioトランスポートでコンテナが早期に終了する問題を修正
-- INFORMATION_SCHEMAクエリ処理の改善
-- サービスアカウント認証情報の処理を改善
-- Claude Desktopのレスポンス形式の修正
-- 環境変数による設定（プロジェクトIDとロケーション）のサポート追加
+- Fixed Claude Desktop compatibility issues in Docker containers
+- Fixed early termination issues with stdio transport in containers
+- Improved INFORMATION_SCHEMA query handling
+- Improved service account credential handling
+- Fixed Claude Desktop response format
+- Added support for configuration via environment variables (project ID and location)
 
 ### Changed
-- FastMCPを使用した実装の最適化
-- テストスクリプトを機能別ディレクトリに整理
-- 冗長なサーバー実装の削除と整理
+- Optimized implementation using FastMCP
+- Organized test scripts into functional directories
+- Removed and cleaned up redundant server implementations
