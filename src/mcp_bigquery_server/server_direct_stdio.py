@@ -56,7 +56,10 @@ class BigQueryMCPServer:
         self.default_project_id = default_project_id
         self.default_location = default_location
 
-        self.bq_client = bigquery.Client()
+        if self.default_project_id:
+            self.bq_client = bigquery.Client(project=self.default_project_id)
+        else:
+            self.bq_client = bigquery.Client()
 
         self.mcp = FastMCP(
             name="mcp-bigquery-server"

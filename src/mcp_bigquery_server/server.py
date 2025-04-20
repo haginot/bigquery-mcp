@@ -38,6 +38,8 @@ class BigQueryMCPServer:
         host: str = "localhost",
         port: int = 8000,
         query_timeout_ms: int = 30000,
+        default_project_id: Optional[str] = None,
+        default_location: Optional[str] = None,
     ):
         """Initialize the BigQuery MCP server.
 
@@ -47,14 +49,21 @@ class BigQueryMCPServer:
             host: Host to bind HTTP server to.
             port: Port to bind HTTP server to.
             query_timeout_ms: Timeout for BigQuery queries in milliseconds.
+            default_project_id: Default Google Cloud project ID to use.
+            default_location: Default BigQuery location/region to use.
         """
         self.expose_resources = expose_resources
         self.http_enabled = http_enabled
         self.host = host
         self.port = port
         self.query_timeout_ms = query_timeout_ms
+        self.default_project_id = default_project_id
+        self.default_location = default_location
 
-        self.bq_client = bigquery.Client()
+        if self.default_project_id:
+            self.bq_client = bigquery.Client(project=self.default_project_id)
+        else:
+            self.bq_client = bigquery.Client()
 
         self.server = Server(
             name="mcp-bigquery-server",
@@ -756,6 +765,14 @@ def main():
         default=30000,
         help="Timeout for BigQuery queries in milliseconds",
     )
+    parser.add_argument(
+        "--project-id",
+        help="Default Google Cloud project ID to use",
+    )
+    parser.add_argument(
+        "--location",
+        help="Default BigQuery location/region to use (e.g., 'US', 'asia-northeast1')",
+    )
     args = parser.parse_args()
 
     server = BigQueryMCPServer(
@@ -764,6 +781,8 @@ def main():
         host=args.host,
         port=args.port,
         query_timeout_ms=args.query_timeout_ms,
+        default_project_id=args.project_id,
+        default_location=args.location,
     )
     server.start()
 
