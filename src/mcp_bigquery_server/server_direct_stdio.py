@@ -289,12 +289,16 @@ class BigQueryMCPServer:
                     result = {
                         "bytesProcessed": query_job.total_bytes_processed,
                         "isDryRun": True,
+                        "projectId": project_id,
+                        "location": location
                     }
                 else:
                     result = {
                         "jobId": query_job.job_id,
                         "status": query_job.state,
                         "bytesProcessed": query_job.total_bytes_processed,
+                        "projectId": project_id,
+                        "location": location
                     }
                 
                 self.send_response(request_id, result)
